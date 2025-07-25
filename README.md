@@ -67,6 +67,7 @@
     프로젝트 루트 디렉터리에 `.env` 파일을 생성하고 OpenAI API 키를 추가합니다. `llm_client.py`는 이 파일을 사용하여 환경 변수를 로드합니다.
 
     ```.env
+    # 일단은 .env 값을 그대로 사용한다.
     OPENAI_API_KEY="sk-..."
     OPENAI_MODEL_NAME="gpt-4o"
     ```
@@ -145,3 +146,27 @@
     ]
   }
   ```
+
+## 💎 해야할 일
+
+### Todo
+
+- [ ] CoE Backend
+  - [ ] Embedding 모델 통한 쿼리 벡터
+  - [ ] 벡터db 활용
+  - [ ] 샘플 품질 고도화
+  - [ ] Docker 배포 스크립트
+- [ ] RAG 생성 파이프 라인
+  - [ ] 정적 분석도구 리서치
+  - [ ] 프로세스 파이프라인 정리
+- [ ] vsCode Extention
+  - [ ] copilot open source 분석
+- [ ] CoE Portal
+  - [ ] webIDE 리서치
+
+### ing
+- [ ] ...
+
+### Done
+
+- [X] LangGraph Backend 샘플
