@@ -160,7 +160,6 @@ def my_tool_node(state: ChatState) -> Dict[str, Any]:
 - [ ] CoE Backend
   - [ ] Embedding 모델 통한 쿼리 벡터
   - [ ] 벡터db 활용
-  - [ ] Docker 배포 스크립트
 - [ ] RAG 생성 파이프 라인
   - [ ] 정적 분석도구 리서치
   - [ ] 프로세스 파이프라인 정리
@@ -172,6 +171,7 @@ def my_tool_node(state: ChatState) -> Dict[str, Any]:
 ### ing
 - [ ] CoE Backend
   - [X] 샘플 품질 고도화
+  - [X] Docker 배포 스크립트
 
 ### Done
 
