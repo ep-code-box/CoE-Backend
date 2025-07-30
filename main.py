@@ -7,35 +7,39 @@ from langgraph.graph import StateGraph, START, END
 # 분리된 모듈에서 스키마와 도구 노드 가져오기
 from schemas import ChatState, ChatRequest, ChatResponse, Message
 from llm_client import client, MODEL_NAME # LLM 클라이언트와 모델 이름 가져오기
-
-# 모든 도구 노드 가져오기
-from tools.api_tool import api_call_node
-from tools.class_tool import class_call_node, class_analysis_node
-from tools.human_tool import human_approval_node
-from tools.subgraph_tool import sub_graph_node
-from tools.langchain_tool import langchain_chain_node
-from tools.basic_tools import tool1_node, tool2_node
 from tools.utils import find_last_user_message
+from tools.registry import load_all_tools
 
-# 3) 라우터 노드: LLM에 분기 요청 (모든 도구를 포함하도록 프롬프트 확장)
+# 1) 도구 레지스트리를 통해 모든 노드, 설명, 엣지를 동적으로 로드
+all_nodes, all_tool_descriptions, all_special_edges = load_all_tools()
+
+# 'end' 도구에 대한 설명 추가
+all_tool_descriptions.append({
+    "name": "end",
+    "description": "사용자가 대화를 끝내고 싶어할 때 사용합니다."
+})
+
+# 2) 라우터가 사용할 유효한 도구 이름 목록 생성
+VALID_TOOL_NAMES = [tool['name'] for tool in all_tool_descriptions]
+
+# 3) 라우터 노드: 동적으로 생성된 설명을 기반으로 프롬프트 구성
 def router_node(state: ChatState) -> dict:
     # 마지막 사용자 메시지를 original_input에 저장
     last_user_message = find_last_user_message(state["messages"]) # utils에서 가져온 함수 사용
+    
+    # 동적으로 도구 설명 목록 생성
+    tool_descriptions_string = "\n".join(
+        [f"- '{tool['name']}': {tool['description']}" for tool in all_tool_descriptions]
+    )
+    
+    # 시스템 프롬프트 구성
+    system_prompt = f"""사용자의 요청에 가장 적합한 도구를 다음 중에서 선택하세요.
+{tool_descriptions_string}
+
+응답은 반드시 다음 JSON 형식이어야 합니다: {{"next_tool": "선택한 도구"}}"""
 
     prompt_messages = state["messages"] + [
-        {"role":"system","content":
-         """사용자의 요청에 가장 적합한 도구를 다음 중에서 선택하세요.
-         - 'tool1': 텍스트를 대문자로 변환합니다.
-         - 'tool2': 텍스트를 역순으로 변환합니다.
-         - 'api_call': 외부 API를 호출하여 사용자 정보를 가져옵니다. (예: "1번 사용자 정보 알려줘")
-         - 'class_call': 텍스트를 분석합니다. (예: "이 문장 분석해줘")
-         - 'sub_graph': 인사를 처리합니다. (예: "안녕")
-         - 'human_approval': 사람의 승인이 필요한 작업을 요청합니다. (예: "중요한 작업 승인해줘")
-         - 'langchain_chain': 텍스트를 요약합니다. (예: "이 긴 글을 요약해줘")
-         - 'combined_tool': API로 데이터를 가져와 클래스로 분석하는 조합 작업입니다. (예: "1번 사용자 데이터 분석해줘")
-         - 'end': 사용자가 대화를 끝내고 싶어할 때 사용합니다.
-
-         응답은 반드시 다음 JSON 형식이어야 합니다: {"next_tool": "선택한 도구"}"""}
+        {"role": "system", "content": system_prompt}
     ]
     try:
         resp = client.chat.completions.create(
@@ -45,13 +49,13 @@ def router_node(state: ChatState) -> dict:
         )
         # OpenAI 객체를 dict로 변환하여 타입 일관성 유지
         response_message = resp.choices[0].message.model_dump()
-        
+
         try:
             # LLM 응답(JSON) 파싱
             choice_json = json.loads(response_message["content"])
             choice = choice_json.get("next_tool")
             print(f"🤖[Router]: LLM이 선택한 도구: {choice}")
-            if choice not in ["tool1", "tool2", "api_call", "class_call", "sub_graph", "human_approval", "langchain_chain", "combined_tool", "end"]:
+            if choice not in VALID_TOOL_NAMES: # 유효한 도구 이름 목록으로 검사
                 raise ValueError(f"LLM이 유효하지 않은 도구({choice})를 반환했습니다.")
             # 다음 노드를 상태에 저장하고, LLM의 응답도 기록에 추가
             return {"messages": [response_message], "next_node": choice, "original_input": last_user_message}
@@ -59,7 +63,7 @@ def router_node(state: ChatState) -> dict:
             # 파싱 실패 시 오류 메시지를 기록하고 그래프 종료
             error_msg = f"라우터가 LLM 응답을 파싱하는 데 실패했습니다: {e}"
             print(f"🤖[Router]: Error - {error_msg}")
-            return {"messages": [response_message, {"role": "system", "content": error_msg}], "next_node": "error", "original_input": last_user_message}
+            return {"messages": [response_message, {"role": "system", "content": error_msg}], "next_node": "error"}
 
     except Exception as e:
         # API 호출 실패 시 오류 메시지를 기록하고 그래프 종료
@@ -70,48 +74,48 @@ def router_node(state: ChatState) -> dict:
 # 5) 그래프 구성 및 컴파일 (모든 노드와 엣지 추가)
 graph = StateGraph(ChatState)
 
-# 라우터와 모든 도구 노드를 그래프에 추가
+# 라우터 노드 추가
 graph.add_node("router", router_node)
-graph.add_node("tool1", tool1_node)
-graph.add_node("tool2", tool2_node)
-graph.add_node("api_call", api_call_node)
-graph.add_node("class_call", class_call_node)
-graph.add_node("sub_graph", sub_graph_node)
-graph.add_node("human_approval", human_approval_node)
-graph.add_node("langchain_chain", langchain_chain_node)
-graph.add_node("class_analysis", class_analysis_node)
 
+# 레지스트리에서 로드한 모든 도구 노드를 동적으로 추가
+for name, node_func in all_nodes.items():
+    graph.add_node(name, node_func)
+
+# 그래프의 시작점을 라우터로 설정
 graph.set_entry_point("router")
 
-# 'router' 노드의 결과('next_node' 상태)에 따라 분기
+# 라우터의 결정에 따라 다음 노드로 분기하도록 동적으로 엣지 매핑 생성
+routable_tool_names = [tool['name'] for tool in all_tool_descriptions if tool['name'] != 'end']
+edge_mapping = {name: name for name in routable_tool_names}
+edge_mapping["combined_tool"] = "api_call"  # 'combined_tool'은 'api_call'로 시작하는 특별 케이스
+edge_mapping["end"] = END
+edge_mapping["error"] = END
+
 graph.add_conditional_edges(
     "router",
     lambda state: state["next_node"],
-    {
-        "tool1": "tool1",
-        "tool2": "tool2",
-        "api_call": "api_call",
-        "class_call": "class_call",
-        "sub_graph": "sub_graph",
-        "human_approval": "human_approval",
-        "langchain_chain": "langchain_chain",
-        "combined_tool": "api_call", # 조합 호출의 시작점
-        "end": END,
-        "error": END, # 'error'일 경우 그래프 종료
-    }
+    edge_mapping
 )
 
-# 조합 호출을 위한 엣지 연결 (API 호출 후 클래스 분석)
-graph.add_edge("api_call", "class_analysis")
-graph.add_edge("class_analysis", END)
+# 레지스트리에서 로드한 특별한 엣지들을 동적으로 추가
+special_edge_sources = set()
+for edge_config in all_special_edges:
+    source_node = edge_config["source"]
+    special_edge_sources.add(source_node)
+    if edge_config["type"] == "conditional":
+        graph.add_conditional_edges(
+            source_node,
+            edge_config["condition"],
+            edge_config["path_map"]
+        )
+    elif edge_config["type"] == "standard":
+        graph.add_edge(source_node, edge_config["target"])
 
-# 단일 작업 노드들은 모두 종료(END)로 연결
-graph.add_edge("tool1", END)
-graph.add_edge("tool2", END)
-graph.add_edge("class_call", END)
-graph.add_edge("sub_graph", END)
-graph.add_edge("human_approval", END) # Human-in-the-loop은 여기서 중단됨
-graph.add_edge("langchain_chain", END)
+# 특별한 엣지가 정의된 노드와 라우터를 제외한 나머지 모든 노드는 작업 완료 후 종료(END)로 연결
+nodes_with_special_outgoing_edges = special_edge_sources.union({"router"})
+for node_name in all_nodes:
+    if node_name not in nodes_with_special_outgoing_edges:
+        graph.add_edge(node_name, END)
 
 agent = graph.compile(interrupt_after=["human_approval"])
 
@@ -143,11 +147,6 @@ async def chat_endpoint(req: ChatRequest):
     # 에이전트 실행 (비동기 방식으로 변경)
     result = await agent.ainvoke(state)
     return ChatResponse(messages=result["messages"])
-
-if __name__ == "__main__":
-    import uvicorn
-    # app: FastAPI 인스턴스
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 if __name__ == "__main__":
     import uvicorn

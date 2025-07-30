@@ -2,6 +2,12 @@ from typing import Dict, Any, TypedDict
 from langgraph.graph import StateGraph, START, END
 from schemas import ChatState
 
+# 라우터 프롬프트에 사용될 도구 설명
+subgraph_tool_description = {
+    "name": "sub_graph",
+    "description": "인사를 처리합니다. (예: \"안녕\")"
+}
+
 
 # 예제 3: 하위 LangGraph 호출
 class GreetingState(TypedDict):
