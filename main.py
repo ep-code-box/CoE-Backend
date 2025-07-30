@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 
 # 분리된 모듈에서 스키마와 도구 노드 가져오기
 from schemas import ChatState, ChatRequest, ChatResponse, Message
-from llm_client import client, MODEL_NAME # LLM 클라이언트와 모델 이름 가져오기
+from llm_client import client, default_model # LLM 클라이언트와 기본 모델 정보 가져오기
 from tools.utils import find_last_user_message
 from tools.registry import load_all_tools
+from models import model_registry # 모델 레지스트리 가져오기
 
 # 1) 도구 레지스트리를 통해 모든 노드, 설명, 엣지를 동적으로 로드
 all_nodes, all_tool_descriptions, all_special_edges = load_all_tools()
@@ -48,7 +49,7 @@ def router_node(state: ChatState) -> dict:
     ]
     try:
         resp = client.chat.completions.create(
-            model=MODEL_NAME, # 환경 변수에서 읽은 모델 이름 사용
+            model=default_model.model_id, # 기본 모델 ID 사용
             messages=prompt_messages,
             response_format={"type": "json_object"} # JSON 모드 활성화
         )
@@ -130,17 +131,17 @@ app = FastAPI()
 @app.get("/v1/models")
 async def list_models():
     """
-    LangChain의 ChatOpenAI 클라이언트가 모델 목록을 조회할 때 사용하는
-    OpenAI 호환 엔드포인트를 구현합니다.
+    models.json에 정의된 사용 가능한 모든 모델의 목록을 반환합니다.
+    OpenAI의 /v1/models 엔드포인트와 호환되는 형식입니다.
     """
+    all_models = model_registry.get_models()
+    model_data = [
+        {"id": model.model_id, "object": "model", "created": 1686935002, "owned_by": model.provider}
+        for model in all_models
+    ]
     return JSONResponse(content={
         "object": "list",
-        "data": [{
-            "id": MODEL_NAME,
-            "object": "model",
-            "created": 1686935002,
-            "owned_by": "user"
-        }]
+        "data": model_data
     })
 
 @app.post("/chat", response_model=ChatResponse)
