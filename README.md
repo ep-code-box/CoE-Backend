@@ -71,7 +71,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. .env 파일 생성 및 API 키 설정
+# 로컬 개발 시 hot-reloading을 활성화하려면 APP_ENV를 "development"로 설정합니다.
 echo "OPENAI_API_KEY='your-openai-api-key'" > .env
+echo "APP_ENV='development'" >> .env
 ```
 
 ### 2. 서버 및 클라이언트 실행

@@ -1,8 +1,10 @@
 import json
+import os
 from typing import Dict
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from langgraph.graph import StateGraph, START, END
+from dotenv import load_dotenv
 
 # 분리된 모듈에서 스키마와 도구 노드 가져오기
 from schemas import ChatState, ChatRequest, ChatResponse, Message
@@ -150,5 +152,17 @@ async def chat_endpoint(req: ChatRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    # app: FastAPI 인스턴스
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+    # .env 파일 로드 (개발 환경에서만 필요)
+    load_dotenv()
+
+    # 환경 변수를 통해 개발 모드와 프로덕션 모드를 구분합니다.
+    # APP_ENV가 'development'일 때만 hot-reloading을 활성화합니다.
+    is_development = os.getenv("APP_ENV") == "development"
+
+    print(f"🚀 Starting server in {'development (hot-reload enabled)' if is_development else 'production'} mode.")
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0", port=8000, reload=is_development
+    )
