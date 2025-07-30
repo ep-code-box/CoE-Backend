@@ -4,8 +4,6 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from pydantic import BaseModel, Field
-
-from llm_client import langchain_client  # LangChain용 클라이언트 가져오기
 from schemas import ChatState
 
 
@@ -14,6 +12,9 @@ langchain_tool_description = {
     "name": "langchain_chain",
     "description": "LangChain을 사용해 텍스트를 요약하고 감성을 분석합니다. (예: \"이 긴 글을 요약해줘\")"
 }
+
+# 분석 체인을 위한 전역 변수 (지연 초기화)
+_analysis_chain = None
 
 # 예제 5: LangChain 통합 (LCEL) - 고도화 버전
 
@@ -35,23 +36,31 @@ sentiment_prompt = ChatPromptTemplate.from_messages([
     ("user", "{text}")
 ])
 
-# 3. LCEL 체인 구성
-# .with_structured_output을 사용하여 LLM이 Pydantic 모델 형식으로 응답하도록 강제
-structured_llm = langchain_client.with_structured_output(SentimentAnalysis)
+def get_analysis_chain():
+    """
+    분석 체인을 초기화하고 반환합니다. (Singleton 패턴)
+    """
+    global _analysis_chain
+    if _analysis_chain is None:
+        # 지연 로딩: 체인이 필요할 때 클라이언트를 임포트합니다.
+        from llm_client import langchain_client
 
-# RunnablePassthrough.assign을 사용하여 요약과 감성 분석을 병렬로 처리
-# 입력으로 받은 'text'를 각 하위 체인으로 전달합니다.
-analysis_chain = RunnablePassthrough.assign(
-    summary=(
-        summary_prompt
-        | langchain_client
-        | StrOutputParser()
-    ),
-    sentiment=(
-        sentiment_prompt
-        | structured_llm
-    )
-)
+        # .with_structured_output을 사용하여 LLM이 Pydantic 모델 형식으로 응답하도록 강제
+        structured_llm = langchain_client.with_structured_output(SentimentAnalysis)
+
+        # RunnablePassthrough.assign을 사용하여 요약과 감성 분석을 병렬로 처리
+        _analysis_chain = RunnablePassthrough.assign(
+            summary=(
+                summary_prompt
+                | langchain_client
+                | StrOutputParser()
+            ),
+            sentiment=(
+                sentiment_prompt
+                | structured_llm
+            )
+        )
+    return _analysis_chain
 
 
 def langchain_chain_node(state: ChatState) -> Dict[str, Any]:
@@ -61,6 +70,7 @@ def langchain_chain_node(state: ChatState) -> Dict[str, Any]:
         return {"messages": [{"role": "assistant", "content": user_content}]}
 
     try:
+        analysis_chain = get_analysis_chain()
         result = analysis_chain.invoke({"text": user_content})
         summary_text = result['summary']
         sentiment_text = result['sentiment'].sentiment

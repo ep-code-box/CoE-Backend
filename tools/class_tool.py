@@ -28,15 +28,25 @@ text_analyzer = TextAnalytics()
 def class_call_node(state: ChatState) -> Dict[str, Any]:
     """Analyzes the user's input text using the TextAnalytics class."""
     user_content = state.get("original_input", "분석할 내용이 없습니다.")
-    result = text_analyzer.analyze(user_content)
+
+    # "명령: 분석할 텍스트" 형식에서 분석할 텍스트만 추출
+    text_to_analyze = user_content
+    if ':' in user_content:
+        # 콜론(:) 뒤의 모든 내용을 분석 대상으로 삼습니다.
+        text_to_analyze = user_content.split(':', 1)[1].strip()
+
+    if not text_to_analyze:
+        return {"messages": [{"role": "system", "content": "분석할 텍스트가 없습니다."}]}
+
+    result = text_analyzer.analyze(text_to_analyze)
     return {"messages": [{"role": "assistant", "content": result}]}
 
 # 예제 6: 조합 호출 (API 호출 결과를 클래스로 분석)
 def class_analysis_node(state: ChatState) -> Dict[str, Any]:
     """Analyzes the 'body' of the data fetched from an API."""
     api_data = state.get("api_data")
-    if not api_data or 'body' not in api_data:
-        return {"messages": [{"role": "system", "content": "분석할 API 데이터가 없습니다."}]}
+    if not isinstance(api_data, dict) or 'body' not in api_data:
+        return {"messages": [{"role": "system", "content": "분석할 API 데이터가 없거나 형식이 올바르지 않습니다."}]}
     
     analysis_result = text_analyzer.analyze(api_data['body'])
     return {"messages": [{"role": "assistant", "content": analysis_result}]}

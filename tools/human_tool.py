@@ -3,11 +3,16 @@ from schemas import ChatState
 from .utils import find_last_user_message
 
 # 라우터 프롬프트에 사용될 도구 설명
-human_tool_description = {
-    "name": "human_approval",
-    "description": "사람의 승인이 필요한 작업을 요청합니다. (예: \"중요한 작업 승인해줘\")"
-}
-
+human_tool_descriptions = [
+    {
+        "name": "human_approval",
+        "description": "사람의 승인이 필요한 작업을 요청합니다. (예: \"중요한 작업 승인해줘\")"
+    },
+    {
+        "name": "process_approval",
+        "description": "사용자의 'approve' 또는 'reject' 응답을 처리합니다. 이 도구는 시스템이 승인을 요청한 직후에만 사용해야 합니다."
+    }
+]
 
 # 예제 4: 사람 개입 (Human-in-the-Loop)
 def human_approval_node(state: ChatState) -> Dict[str, Any]:

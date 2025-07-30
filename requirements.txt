@@ -7,5 +7,3 @@ openai
 requests
 pydantic
 python-dotenv
-chromadb
-tiktoken

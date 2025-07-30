@@ -38,6 +38,9 @@ def router_node(state: ChatState) -> dict:
     system_prompt = f"""사용자의 요청에 가장 적합한 도구를 다음 중에서 선택하세요.
 {tool_descriptions_string}
 
+특별 규칙:
+- 만약 바로 이전의 시스템 메시지가 승인을 요청하는 내용이고 사용자가 'approve' 또는 'reject'와 유사한 응답을 했다면, 반드시 'process_approval' 도구를 선택해야 합니다.
+
 응답은 반드시 다음 JSON 형식이어야 합니다: {{"next_tool": "선택한 도구"}}"""
 
     prompt_messages = state["messages"] + [
