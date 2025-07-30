@@ -1,0 +1,23 @@
+[
+  {
+    "model_id": "gpt-4o-mini",
+    "name": "GPT-4o Mini",
+    "description": "OpenAI's fast and affordable flagship model.",
+    "provider": "openai",
+    "is_default": false
+  },
+  {
+    "model_id": "gpt-4o",
+    "name": "GPT-4o",
+    "description": "OpenAI's most advanced, multimodal model.",
+    "provider": "openai",
+    "is_default": false
+  },
+  {
+    "model_id": "ax4",
+    "name": "AX4 Model",
+    "description": "Default model provided by the API.",
+    "provider": "sktax",
+    "is_default": true
+  }
+]

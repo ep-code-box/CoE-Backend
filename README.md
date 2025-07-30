@@ -70,9 +70,10 @@ pip install -r requirements.txt
 
 # 4. .env 파일 생성 및 API 키 설정
 # 로컬 개발 시 hot-reloading을 활성화하려면 APP_ENV를 "development"로 설정합니다.
-echo "OPENAI_API_KEY='your-openai-api-key'" > .env
-echo "OPENAI_MODEL_NAME='gpt-4o-mini'" >> .env
+echo "OPENAI_API_BASE='https://guest-api.sktax.chat/v1'" > .env
+echo "OPENAI_API_KEY='your-sktax-api-key'" >> .env
 echo "APP_ENV='development'" >> .env
+# 참고: 모델 설정은 .env 파일이 아닌 models.json 파일에서 관리됩니다.
 ```
 
 ### 2. 서버 및 클라이언트 실행
@@ -128,22 +129,3 @@ def my_tool_node(state: ChatState) -> Dict[str, Any]:
 - **`POST /chat`**: 채팅 메시지를 받아 에이전트를 실행하고 응답을 반환합니다.
 - **`GET /v1/models`**: LangChain 호환성을 위한 모델 목록을 반환합니다.
 
-
-
-## 💎 해야할 일
-
-### Todo
-
-- [ ] vsCode Extention
-  - [ ] copilot open source 분석
-- [ ] CoE Portal
-  - [ ] webIDE 리서치
-
-### ing
-- [ ] CoE Backend
-  - [X] 샘플 품질 고도화
-  - [X] Docker 배포 스크립트
-
-### Done
-
-- [X] LangGraph Backend 샘플
