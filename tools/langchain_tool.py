@@ -1,19 +1,72 @@
-from typing import Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
+from typing import Dict, Any, Literal
+
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from pydantic import BaseModel, Field
+
+from llm_client import langchain_client  # LangChain용 클라이언트 가져오기
 from schemas import ChatState
-from llm_client import langchain_client # LangChain용 클라이언트 가져오기
 
 
-# 예제 5: LangChain 통합 (LCEL)
-summary_prompt = ChatPromptTemplate.from_messages([
-    ("system", "다음 텍스트를 한 문장으로 요약해주세요."),
+# 라우터 프롬프트에 사용될 도구 설명
+langchain_tool_description = {
+    "name": "langchain_chain",
+    "description": "LangChain을 사용해 텍스트를 요약하고 감성을 분석합니다. (예: \"이 긴 글을 요약해줘\")"
+}
+
+# 예제 5: LangChain 통합 (LCEL) - 고도화 버전
+
+# 1. 감성 분석을 위한 Pydantic 모델 정의
+class SentimentAnalysis(BaseModel):
+    """텍스트의 감성을 분석한 결과"""
+    sentiment: Literal["positive", "negative", "neutral"] = Field(
+        description="분석된 감성. 'positive', 'negative', 'neutral' 중 하나입니다."
+    )
+
+
+# 2. 요약 및 감성 분석을 위한 프롬프트 템플릿 정의
+summary_prompt = ChatPromptTemplate.from_template(
+    "다음 텍스트를 1~2 문장으로 간결하게 요약해줘:\n\n{text}"
+)
+
+sentiment_prompt = ChatPromptTemplate.from_messages([
+    ("system", "당신은 텍스트의 감성을 분석하는 전문가입니다. 주어진 텍스트가 긍정, 부정, 중립 중 어디에 해당하는지 판단하고, 반드시 지정된 JSON 형식으로만 응답해야 합니다."),
     ("user", "{text}")
 ])
-summary_chain = summary_prompt | langchain_client | StrOutputParser()
+
+# 3. LCEL 체인 구성
+# .with_structured_output을 사용하여 LLM이 Pydantic 모델 형식으로 응답하도록 강제
+structured_llm = langchain_client.with_structured_output(SentimentAnalysis)
+
+# RunnablePassthrough.assign을 사용하여 요약과 감성 분석을 병렬로 처리
+# 입력으로 받은 'text'를 각 하위 체인으로 전달합니다.
+analysis_chain = RunnablePassthrough.assign(
+    summary=(
+        summary_prompt
+        | langchain_client
+        | StrOutputParser()
+    ),
+    sentiment=(
+        sentiment_prompt
+        | structured_llm
+    )
+)
+
 
 def langchain_chain_node(state: ChatState) -> Dict[str, Any]:
-    """LangChain 체인을 사용하여 사용자의 입력 텍스트를 요약합니다."""
+    """LangChain Expression Language(LCEL)를 사용하여 텍스트를 요약하고 감성을 분석합니다."""
     user_content = state.get("original_input", "요약할 내용이 없습니다.")
-    summary = summary_chain.invoke({"text": user_content})
-    return {"messages": [{"role": "assistant", "content": f"요약: {summary}"}]}
+    if user_content == "요약할 내용이 없습니다.":
+        return {"messages": [{"role": "assistant", "content": user_content}]}
+
+    try:
+        result = analysis_chain.invoke({"text": user_content})
+        summary_text = result['summary']
+        sentiment_text = result['sentiment'].sentiment
+        response_message = f"텍스트 분석 결과입니다:\n- 요약: {summary_text}\n- 감성: {sentiment_text.capitalize()}"
+        return {"messages": [{"role": "assistant", "content": response_message}]}
+    except Exception as e:
+        error_message = f"LangChain 체인 실행 중 오류가 발생했습니다: {e}"
+        print(f"ERROR in langchain_chain_node: {error_message}")
+        return {"messages": [{"role": "system", "content": error_message}]}

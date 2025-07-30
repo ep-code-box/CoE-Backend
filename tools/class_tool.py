@@ -2,6 +2,18 @@ from typing import Dict, Any
 from schemas import ChatState
 
 
+# 라우터 프롬프트에 사용될 도구 설명
+class_tool_descriptions = [
+    {
+        "name": "class_call",
+        "description": "텍스트를 분석합니다. (예: \"이 문장 분석해줘\")"
+    },
+    {
+        "name": "combined_tool",
+        "description": "API로 데이터를 가져와 클래스로 분석하는 조합 작업입니다. (예: \"1번 사용자 데이터 분석해줘\")"
+    }
+]
+
 # 예제 2: Python 클래스 호출
 class TextAnalytics:
     """A simple class for text analysis."""
