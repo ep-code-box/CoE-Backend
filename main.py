@@ -1,13 +1,17 @@
 import json
 import os
+import uuid
 from typing import Dict
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from langgraph.graph import StateGraph, START, END
 from dotenv import load_dotenv
 
 # 분리된 모듈에서 스키마와 도구 노드 가져오기
-from schemas import ChatState, ChatRequest, ChatResponse, Message
+from schemas import (
+    ChatState, ChatRequest, ChatResponse, Message,
+    LangFlowJSON, SaveFlowRequest, FlowListResponse, ExecuteFlowRequest
+)
 from llm_client import client, default_model # LLM 클라이언트와 기본 모델 정보 가져오기
 from tools.utils import find_last_user_message
 from tools.registry import load_all_tools
@@ -153,6 +157,137 @@ async def chat_endpoint(req: ChatRequest):
     # 에이전트 실행 (비동기 방식으로 변경)
     result = await agent.ainvoke(state)
     return ChatResponse(messages=result["messages"])
+
+# LangFlow 관련 엔드포인트
+@app.post("/flows/save")
+async def save_flow(req: SaveFlowRequest):
+    """LangFlow JSON을 파일로 저장합니다."""
+    try:
+        # flows 디렉토리가 없으면 생성
+        flows_dir = "flows"
+        os.makedirs(flows_dir, exist_ok=True)
+        
+        # 파일명 생성 (특수문자 제거)
+        safe_name = "".join(c for c in req.name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_name}.json"
+        filepath = os.path.join(flows_dir, filename)
+        
+        # 메타데이터 추가
+        flow_data = req.flow_data.model_dump()
+        flow_data["saved_name"] = req.name
+        if req.description:
+            flow_data["description"] = req.description
+        
+        # JSON 파일로 저장
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(flow_data, f, indent=2, ensure_ascii=False)
+        
+        return {"message": f"Flow '{req.name}' saved successfully", "filename": filename}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save flow: {str(e)}")
+
+@app.get("/flows/list", response_model=FlowListResponse)
+async def list_flows():
+    """저장된 LangFlow 목록을 반환합니다."""
+    try:
+        flows_dir = "flows"
+        flows = []
+        
+        if os.path.exists(flows_dir):
+            for filename in os.listdir(flows_dir):
+                if filename.endswith('.json'):
+                    filepath = os.path.join(flows_dir, filename)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            flow_data = json.load(f)
+                        
+                        flows.append({
+                            "name": flow_data.get("saved_name", filename[:-5]),
+                            "id": flow_data.get("id", filename[:-5]),
+                            "description": flow_data.get("description", ""),
+                            "filename": filename
+                        })
+                    except Exception as e:
+                        print(f"Error reading flow file {filename}: {e}")
+                        continue
+        
+        return FlowListResponse(flows=flows)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list flows: {str(e)}")
+
+@app.get("/flows/{flow_name}")
+async def get_flow(flow_name: str):
+    """특정 LangFlow JSON을 반환합니다."""
+    try:
+        flows_dir = "flows"
+        
+        # 파일명으로 직접 찾기
+        if flow_name.endswith('.json'):
+            filename = flow_name
+        else:
+            filename = f"{flow_name}.json"
+        
+        filepath = os.path.join(flows_dir, filename)
+        
+        if not os.path.exists(filepath):
+            # 저장된 이름으로 찾기
+            for file in os.listdir(flows_dir):
+                if file.endswith('.json'):
+                    file_path = os.path.join(flows_dir, file)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        flow_data = json.load(f)
+                    if flow_data.get("saved_name") == flow_name:
+                        filepath = file_path
+                        break
+            else:
+                raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            flow_data = json.load(f)
+        
+        return flow_data
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get flow: {str(e)}")
+
+@app.delete("/flows/{flow_name}")
+async def delete_flow(flow_name: str):
+    """저장된 LangFlow를 삭제합니다."""
+    try:
+        flows_dir = "flows"
+        
+        # 파일명으로 직접 찾기
+        if flow_name.endswith('.json'):
+            filename = flow_name
+        else:
+            filename = f"{flow_name}.json"
+        
+        filepath = os.path.join(flows_dir, filename)
+        
+        if not os.path.exists(filepath):
+            # 저장된 이름으로 찾기
+            for file in os.listdir(flows_dir):
+                if file.endswith('.json'):
+                    file_path = os.path.join(flows_dir, file)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        flow_data = json.load(f)
+                    if flow_data.get("saved_name") == flow_name:
+                        filepath = file_path
+                        break
+            else:
+                raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
+        
+        os.remove(filepath)
+        return {"message": f"Flow '{flow_name}' deleted successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete flow: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
