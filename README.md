@@ -12,6 +12,9 @@
 - **OpenWebUI 호환**: 표준 OpenAI API 규격(`v1/chat/completions`)을 지원하여 OpenWebUI의 백엔드로 완벽하게 동작합니다.
 - **LangFlow 연동**: LangFlow에서 설계한 워크플로우를 파일로 저장하고 관리할 수 있는 API를 제공합니다.
 - **다양한 도구 통합**: REST API 호출, LCEL 체인, Human-in-the-Loop 등 복잡한 워크플로우를 지원하는 다양한 도구 예시를 포함합니다.
+- **임베딩 모델 지원**: 한국어 특화 임베딩 모델을 포함한 다양한 임베딩 모델을 지원하며, 동적으로 모델을 추가/관리할 수 있습니다.
+- **벡터 데이터베이스 연동**: ChromaDB를 통한 벡터 검색 및 RAG(Retrieval-Augmented Generation) 기능을 제공합니다.
+- **다중 LLM 지원**: OpenAI, Anthropic 등 다양한 LLM 제공업체를 지원하며, `models.json`을 통해 쉽게 관리할 수 있습니다.
 - **비동기 API 서버**: FastAPI 기반으로 높은 성능의 비동기 API 엔드포인트를 제공합니다.
 - **Docker 지원**: Docker를 통해 일관되고 안정적인 배포 환경을 제공합니다.
 
@@ -156,11 +159,184 @@ def my_tool_node(state: ChatState) -> Dict[str, Any]:
   - 다른 모델 ID를 지정하면 해당 LLM을 직접 호출하는 프록시 역할을 합니다.
 - **`GET /v1/models`**: 사용 가능한 모델 목록을 반환합니다. (`coe-agent-v1` 포함)
 
+### 임베딩 및 벡터 검색
+- **`POST /v1/embeddings`**: 텍스트를 벡터로 변환하는 임베딩 API
+  - 한국어 특화 모델(`ko-sentence-bert`) 및 다국어 모델 지원
+  - OpenAI 호환 API 형식으로 제공
+- **`POST /vector/search`**: 벡터 유사도 검색 API
+  - ChromaDB를 통한 고성능 벡터 검색
+  - 메타데이터 필터링 지원
+- **`POST /vector/upsert`**: 벡터 데이터 저장/업데이트 API
+  - 문서와 메타데이터를 함께 저장
+  - 배치 처리 지원
+
+### RAG (Retrieval-Augmented Generation)
+- **`POST /rag/query`**: RAG 기반 질의응답 API
+  - 벡터 검색과 LLM 추론을 결합
+  - 컨텍스트 기반 정확한 답변 생성
+- **`POST /rag/index`**: 문서 인덱싱 API
+  - 대용량 문서를 청크 단위로 분할하여 인덱싱
+  - 자동 임베딩 및 벡터 저장
+
 ### LangFlow 관리
 - **`POST /flows/save`**: LangFlow 워크플로우를 JSON 파일로 저장합니다.
 - **`GET /flows/list`**: 저장된 모든 워크플로우의 목록을 반환합니다.
 - **`GET /flows/{flow_name}`**: 특정 워크플로우의 JSON 데이터를 조회합니다.
 - **`DELETE /flows/{flow_name}`**: 특정 워크플로우를 삭제합니다.
+
+### 모델 관리
+- **`GET /models/list`**: 등록된 모든 모델 정보 조회
+- **`POST /models/add`**: 새로운 모델 등록
+- **`PUT /models/{model_id}`**: 기존 모델 정보 업데이트
+- **`DELETE /models/{model_id}`**: 모델 등록 해제
+
+## 🔧 고급 설정
+
+### 임베딩 모델 설정
+
+`models.json` 파일에서 임베딩 모델을 관리할 수 있습니다:
+
+```json
+{
+  "embedding_models": [
+    {
+      "id": "ko-sentence-bert",
+      "name": "Korean Sentence BERT",
+      "provider": "local",
+      "endpoint": "http://koEmbeddings:8000/embeddings",
+      "dimensions": 768,
+      "max_tokens": 512,
+      "language": "ko"
+    },
+    {
+      "id": "text-embedding-ada-002",
+      "name": "OpenAI Ada v2",
+      "provider": "openai",
+      "dimensions": 1536,
+      "max_tokens": 8191,
+      "language": "multilingual"
+    }
+  ]
+}
+```
+
+### 벡터 데이터베이스 설정
+
+ChromaDB 연결 설정:
+
+```python
+# .env 파일
+CHROMA_HOST=chroma
+CHROMA_PORT=6666
+CHROMA_COLLECTION_NAME=coe_documents
+
+# 고급 설정
+CHROMA_DISTANCE_FUNCTION=cosine  # cosine, l2, ip
+CHROMA_MAX_RESULTS=10
+CHROMA_SIMILARITY_THRESHOLD=0.7
+```
+
+### RAG 파이프라인 설정
+
+```python
+# RAG 설정
+RAG_CHUNK_SIZE=1000
+RAG_CHUNK_OVERLAP=200
+RAG_TOP_K=5
+RAG_RERANK_ENABLED=true
+RAG_CONTEXT_WINDOW=4000
+```
+
+## 🔧 문제 해결
+
+### 일반적인 문제들
+
+#### 임베딩 서비스 연결 오류
+
+**문제**: `Connection refused to embedding service`
+
+**해결방법**:
+```bash
+# 임베딩 서비스 상태 확인
+docker-compose logs koEmbeddings
+
+# 네트워크 연결 테스트
+docker-compose exec coe-backend curl http://koEmbeddings:6668/health
+
+# 서비스 재시작
+docker-compose restart koEmbeddings coe-backend
+```
+
+#### ChromaDB 연결 문제
+
+**문제**: `ChromaDB connection timeout`
+
+**해결방법**:
+```bash
+# ChromaDB 상태 확인
+docker-compose logs chroma
+
+# 데이터 볼륨 확인
+docker volume ls | grep chroma
+
+# ChromaDB 재시작
+docker-compose restart chroma
+```
+
+#### 메모리 부족 오류
+
+**문제**: 대용량 문서 처리 시 메모리 부족
+
+**해결방법**:
+```bash
+# Docker 메모리 제한 증가 (docker-compose.yml)
+services:
+  coe-backend:
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+```
+
+### 성능 최적화
+
+#### 임베딩 성능 최적화
+- 배치 크기 조정: `EMBEDDING_BATCH_SIZE=32`
+- 캐싱 활성화: `EMBEDDING_CACHE_ENABLED=true`
+- GPU 사용: CUDA 지원 임베딩 모델 사용
+
+#### 벡터 검색 최적화
+- 인덱스 최적화: 정기적인 인덱스 재구성
+- 메타데이터 필터링: 불필요한 검색 범위 제한
+- 결과 캐싱: 자주 사용되는 쿼리 결과 캐싱
+
+## 🧪 테스트
+
+### 단위 테스트 실행
+```bash
+# 전체 테스트
+python -m pytest
+
+# 특정 모듈 테스트
+python -m pytest test_embedding.py
+python -m pytest test_vector_db.py
+python -m pytest test_rag.py
+```
+
+### API 테스트
+```bash
+# 임베딩 API 테스트
+curl -X POST http://localhost:8000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"input": "안녕하세요", "model": "ko-sentence-bert"}'
+
+# 벡터 검색 테스트
+curl -X POST http://localhost:8000/vector/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Python 프로그래밍", "top_k": 5}'
+```
 
 ---
 
