@@ -2,10 +2,11 @@ import json
 import os
 import uuid
 from typing import Dict
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from langgraph.graph import StateGraph, START, END
 from dotenv import load_dotenv
+from sqlalchemy.orm import Session
 
 # 분리된 모듈에서 스키마와 도구 노드 가져오기
 from schemas import (
@@ -16,6 +17,10 @@ from llm_client import client, default_model # LLM 클라이언트와 기본 모
 from tools.utils import find_last_user_message
 from tools.registry import load_all_tools
 from models import model_registry # 모델 레지스트리 가져오기
+
+# 데이터베이스 관련 임포트
+from database import get_db, init_database
+from db_service import LangFlowService, DatabaseService
 
 # 1) 도구 레지스트리를 통해 모든 노드, 설명, 엣지를 동적으로 로드
 all_nodes, all_tool_descriptions, all_special_edges = load_all_tools()
@@ -132,6 +137,16 @@ agent = graph.compile(interrupt_after=["human_approval"])
 # 7) FastAPI 앱 생성 및 엔드포인트
 app = FastAPI()
 
+# 데이터베이스 초기화
+@app.on_event("startup")
+async def startup_event():
+    """애플리케이션 시작 시 데이터베이스 초기화"""
+    print("🚀 애플리케이션 시작 중...")
+    if init_database():
+        print("✅ 데이터베이스 초기화 완료")
+    else:
+        print("❌ 데이터베이스 초기화 실패")
+
 @app.get("/v1/models")
 async def list_models():
     """
@@ -160,57 +175,50 @@ async def chat_endpoint(req: ChatRequest):
 
 # LangFlow 관련 엔드포인트
 @app.post("/flows/save")
-async def save_flow(req: SaveFlowRequest):
-    """LangFlow JSON을 파일로 저장합니다."""
+async def save_flow(req: SaveFlowRequest, db: Session = Depends(get_db)):
+    """LangFlow JSON을 데이터베이스에 저장합니다."""
     try:
-        # flows 디렉토리가 없으면 생성
-        flows_dir = "flows"
-        os.makedirs(flows_dir, exist_ok=True)
-        
-        # 파일명 생성 (특수문자 제거)
-        safe_name = "".join(c for c in req.name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        filename = f"{safe_name}.json"
-        filepath = os.path.join(flows_dir, filename)
-        
         # 메타데이터 추가
         flow_data = req.flow_data.model_dump()
         flow_data["saved_name"] = req.name
         if req.description:
             flow_data["description"] = req.description
         
-        # JSON 파일로 저장
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(flow_data, f, indent=2, ensure_ascii=False)
+        # 데이터베이스에 저장
+        db_flow = LangFlowService.create_flow(
+            db=db,
+            name=req.name,
+            flow_data=flow_data,
+            description=req.description
+        )
         
-        return {"message": f"Flow '{req.name}' saved successfully", "filename": filename}
+        return {
+            "message": f"Flow '{req.name}' saved successfully",
+            "id": db_flow.id,
+            "name": db_flow.name,
+            "created_at": db_flow.created_at.isoformat()
+        }
     
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save flow: {str(e)}")
 
 @app.get("/flows/list", response_model=FlowListResponse)
-async def list_flows():
+async def list_flows(db: Session = Depends(get_db)):
     """저장된 LangFlow 목록을 반환합니다."""
     try:
-        flows_dir = "flows"
-        flows = []
+        db_flows = LangFlowService.get_all_flows(db)
         
-        if os.path.exists(flows_dir):
-            for filename in os.listdir(flows_dir):
-                if filename.endswith('.json'):
-                    filepath = os.path.join(flows_dir, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            flow_data = json.load(f)
-                        
-                        flows.append({
-                            "name": flow_data.get("saved_name", filename[:-5]),
-                            "id": flow_data.get("id", filename[:-5]),
-                            "description": flow_data.get("description", ""),
-                            "filename": filename
-                        })
-                    except Exception as e:
-                        print(f"Error reading flow file {filename}: {e}")
-                        continue
+        flows = []
+        for db_flow in db_flows:
+            flows.append({
+                "name": db_flow.name,
+                "id": str(db_flow.id),
+                "description": db_flow.description or "",
+                "created_at": db_flow.created_at.isoformat(),
+                "updated_at": db_flow.updated_at.isoformat()
+            })
         
         return FlowListResponse(flows=flows)
     
@@ -218,34 +226,26 @@ async def list_flows():
         raise HTTPException(status_code=500, detail=f"Failed to list flows: {str(e)}")
 
 @app.get("/flows/{flow_name}")
-async def get_flow(flow_name: str):
+async def get_flow(flow_name: str, db: Session = Depends(get_db)):
     """특정 LangFlow JSON을 반환합니다."""
     try:
-        flows_dir = "flows"
+        # 이름으로 플로우 조회
+        db_flow = LangFlowService.get_flow_by_name(db, flow_name)
         
-        # 파일명으로 직접 찾기
-        if flow_name.endswith('.json'):
-            filename = flow_name
-        else:
-            filename = f"{flow_name}.json"
+        if not db_flow:
+            raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
         
-        filepath = os.path.join(flows_dir, filename)
+        # JSON 데이터를 딕셔너리로 변환하여 반환
+        flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
         
-        if not os.path.exists(filepath):
-            # 저장된 이름으로 찾기
-            for file in os.listdir(flows_dir):
-                if file.endswith('.json'):
-                    file_path = os.path.join(flows_dir, file)
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        flow_data = json.load(f)
-                    if flow_data.get("saved_name") == flow_name:
-                        filepath = file_path
-                        break
-            else:
-                raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            flow_data = json.load(f)
+        # 메타데이터 추가
+        flow_data.update({
+            "id": db_flow.id,
+            "name": db_flow.name,
+            "description": db_flow.description,
+            "created_at": db_flow.created_at.isoformat(),
+            "updated_at": db_flow.updated_at.isoformat()
+        })
         
         return flow_data
     
@@ -255,39 +255,99 @@ async def get_flow(flow_name: str):
         raise HTTPException(status_code=500, detail=f"Failed to get flow: {str(e)}")
 
 @app.delete("/flows/{flow_name}")
-async def delete_flow(flow_name: str):
+async def delete_flow(flow_name: str, db: Session = Depends(get_db)):
     """저장된 LangFlow를 삭제합니다."""
     try:
-        flows_dir = "flows"
+        # 플로우 삭제 (소프트 삭제)
+        success = LangFlowService.delete_flow(db, flow_name)
         
-        # 파일명으로 직접 찾기
-        if flow_name.endswith('.json'):
-            filename = flow_name
-        else:
-            filename = f"{flow_name}.json"
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
         
-        filepath = os.path.join(flows_dir, filename)
-        
-        if not os.path.exists(filepath):
-            # 저장된 이름으로 찾기
-            for file in os.listdir(flows_dir):
-                if file.endswith('.json'):
-                    file_path = os.path.join(flows_dir, file)
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        flow_data = json.load(f)
-                    if flow_data.get("saved_name") == flow_name:
-                        filepath = file_path
-                        break
-            else:
-                raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
-        
-        os.remove(filepath)
         return {"message": f"Flow '{flow_name}' deleted successfully"}
     
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete flow: {str(e)}")
+
+# DB 관리 엔드포인트
+@app.get("/db/tables")
+async def get_table_info(db: Session = Depends(get_db)):
+    """데이터베이스 테이블 정보를 조회합니다."""
+    try:
+        table_info = DatabaseService.get_table_info(db)
+        return {"tables": table_info}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get table info: {str(e)}")
+
+@app.post("/db/query")
+async def execute_query(query: dict, db: Session = Depends(get_db)):
+    """SQL 쿼리를 실행합니다 (SELECT만 허용)."""
+    try:
+        sql_query = query.get("query", "").strip()
+        if not sql_query:
+            raise HTTPException(status_code=400, detail="Query is required")
+        
+        result = DatabaseService.execute_query(db, sql_query)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to execute query: {str(e)}")
+
+# 파일 기반 데이터를 DB로 마이그레이션하는 엔드포인트
+@app.post("/flows/migrate")
+async def migrate_flows_from_files(db: Session = Depends(get_db)):
+    """기존 파일 기반 LangFlow 데이터를 데이터베이스로 마이그레이션합니다."""
+    try:
+        flows_dir = "flows"
+        migrated_count = 0
+        errors = []
+        
+        if not os.path.exists(flows_dir):
+            return {"message": "No flows directory found", "migrated_count": 0}
+        
+        for filename in os.listdir(flows_dir):
+            if filename.endswith('.json'):
+                filepath = os.path.join(flows_dir, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        flow_data = json.load(f)
+                    
+                    # 파일에서 메타데이터 추출
+                    name = flow_data.get("saved_name", filename[:-5])
+                    description = flow_data.get("description", "")
+                    
+                    # 데이터베이스에 저장 시도
+                    try:
+                        LangFlowService.create_flow(
+                            db=db,
+                            name=name,
+                            flow_data=flow_data,
+                            description=description
+                        )
+                        migrated_count += 1
+                        print(f"✅ Migrated flow: {name}")
+                    except ValueError as e:
+                        # 이미 존재하는 플로우는 건너뛰기
+                        if "already exists" in str(e):
+                            print(f"⚠️ Flow '{name}' already exists, skipping")
+                        else:
+                            errors.append(f"Flow '{name}': {str(e)}")
+                    
+                except Exception as e:
+                    errors.append(f"File '{filename}': {str(e)}")
+                    continue
+        
+        return {
+            "message": f"Migration completed. {migrated_count} flows migrated.",
+            "migrated_count": migrated_count,
+            "errors": errors
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to migrate flows: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

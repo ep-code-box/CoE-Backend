@@ -7,3 +7,6 @@ openai
 requests
 pydantic
 python-dotenv
+sqlalchemy
+pymysql
+cryptography
