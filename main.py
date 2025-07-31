@@ -1,26 +1,23 @@
 import json
 import os
 import uuid
-from typing import Dict
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from typing import Dict, AsyncGenerator, Any
+import time
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from langgraph.graph import StateGraph, START, END
 from dotenv import load_dotenv
-from sqlalchemy.orm import Session
 
-# 분리된 모듈에서 스키마와 도구 노드 가져오기
+# 분리된 모듈에서 필요한 클래스와 함수 가져오기
 from schemas import (
-    ChatState, ChatRequest, ChatResponse, Message,
+    ChatState, ChatRequest, ChatResponse,
+    OpenAIChatRequest,  # OpenAI 호환 요청 스키마 추가
     LangFlowJSON, SaveFlowRequest, FlowListResponse, ExecuteFlowRequest
 )
 from llm_client import client, default_model # LLM 클라이언트와 기본 모델 정보 가져오기
 from tools.utils import find_last_user_message
 from tools.registry import load_all_tools
 from models import model_registry # 모델 레지스트리 가져오기
-
-# 데이터베이스 관련 임포트
-from database import get_db, init_database
-from db_service import LangFlowService, DatabaseService
 
 # 1) 도구 레지스트리를 통해 모든 노드, 설명, 엣지를 동적으로 로드
 all_nodes, all_tool_descriptions, all_special_edges = load_all_tools()
@@ -31,8 +28,17 @@ all_tool_descriptions.append({
     "description": "사용자가 대화를 끝내고 싶어할 때 사용합니다."
 })
 
-# 2) 라우터가 사용할 유효한 도구 이름 목록 생성
+# 2) 라우터가 사용할 유효한 도구 이름 목록 및 OpenWebUI 연동을 위한 에이전트 모델 정의
 VALID_TOOL_NAMES = [tool['name'] for tool in all_tool_descriptions]
+AGENT_MODEL_ID = "coe-agent-v1" # OpenWebUI에서 사용할 모델 ID
+
+# 에이전트를 모델 레지스트리에 동적으로 등록
+model_registry.register_model(
+    model_id=AGENT_MODEL_ID,
+    name="CoE Agent v1", # OpenWebUI에 표시될 이름
+    provider="CoE",
+    description="CoE LangGraph Agent for development guide extraction"
+)
 
 # 3) 라우터 노드: 동적으로 생성된 설명을 기반으로 프롬프트 구성
 def router_node(state: ChatState) -> dict:
@@ -137,16 +143,6 @@ agent = graph.compile(interrupt_after=["human_approval"])
 # 7) FastAPI 앱 생성 및 엔드포인트
 app = FastAPI()
 
-# 데이터베이스 초기화
-@app.on_event("startup")
-async def startup_event():
-    """애플리케이션 시작 시 데이터베이스 초기화"""
-    print("🚀 애플리케이션 시작 중...")
-    if init_database():
-        print("✅ 데이터베이스 초기화 완료")
-    else:
-        print("❌ 데이터베이스 초기화 실패")
-
 @app.get("/v1/models")
 async def list_models():
     """
@@ -163,62 +159,160 @@ async def list_models():
         "data": model_data
     })
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest):
-    # Pydantic 모델을 내부 상태(dict)로 변환
-    state = {
-        "messages": [msg.model_dump() for msg in req.messages],
+
+# --- OpenAI 호환 스트리밍 응답 생성을 위한 헬퍼 함수 ---
+
+def _create_openai_chunk(model_id: str, content: str, finish_reason: str = None) -> str:
+    """OpenAI 스트리밍 형식에 맞는 청크(chunk)를 생성합니다."""
+    chunk_id = f"chatcmpl-{uuid.uuid4()}"
+    response = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model_id,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": content},
+                "finish_reason": finish_reason,
+            }
+        ],
     }
-    # 에이전트 실행 (비동기 방식으로 변경)
+    return f"data: {json.dumps(response)}\n\n"
+
+async def _agent_stream_generator(model_id: str, final_message: str) -> AsyncGenerator[str, None]:
+    """LangGraph 에이전트의 최종 응답을 스트리밍 형식으로 변환하는 비동기 생성기입니다."""
+    # 메시지를 단어 단위로 나누어 스트리밍 효과를 냅니다.
+    words = final_message.split(' ')
+    for word in words:
+        yield _create_openai_chunk(model_id, f"{word} ")
+        await asyncio.sleep(0.05) # 인위적인 딜레이로 스트리밍 효과 극대화
+    
+    # 스트림 종료를 알리는 마지막 청크
+    yield _create_openai_chunk(model_id, "", "stop")
+    yield "data: [DONE]\n\n"
+
+
+# --- 메인 채팅 엔드포인트 (OpenAI 호환) ---
+
+@app.post("/v1/chat/completions")
+async def chat_completions(req: OpenAIChatRequest):
+    """
+    OpenAI API와 호환되는 채팅 엔드포인트입니다.
+    요청된 모델 ID에 따라 CoE 에이전트를 실행하거나, 일반 LLM 호출을 프록시합니다.
+    """
+    # 1. CoE 에이전트 모델을 요청한 경우
+    if req.model == AGENT_MODEL_ID:
+        state = {"messages": [msg.model_dump() for msg in req.messages]}
+        
+        # 에이전트 실행
+        result = await agent.ainvoke(state)
+        final_message = find_last_user_message(result["messages"], role="assistant")
+
+        if req.stream:
+            # 스트리밍 응답
+            return StreamingResponse(
+                _agent_stream_generator(req.model, final_message),
+                media_type="text/event-stream"
+            )
+        else:
+            # 일반 JSON 응답
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": final_message}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0} # 사용량은 추적하지 않음
+            }
+
+    # 2. 일반 LLM 모델을 요청한 경우 (프록시 역할)
+    else:
+        try:
+            # OpenAI 클라이언트로 요청을 그대로 전달
+            response = client.chat.completions.create(
+                model=req.model,
+                messages=[msg.model_dump() for msg in req.messages],
+                stream=req.stream,
+                temperature=req.temperature,
+                max_tokens=req.max_tokens
+            )
+            
+            if req.stream:
+                # 스트리밍 응답 프록시
+                async def stream_proxy():
+                    for chunk in response:
+                        yield f"data: {chunk.model_dump_json()}\n\n"
+                return StreamingResponse(stream_proxy(), media_type="text/event-stream")
+            else:
+                # 일반 JSON 응답 프록시
+                return response.model_dump()
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"LLM API 호출 오류: {str(e)}")
+
+# 기존 /chat 엔드포인트는 내부 테스트용으로 유지하거나 삭제할 수 있습니다.
+# 여기서는 OpenWebUI와의 호환성을 위해 /v1/chat/completions를 메인으로 사용합니다.
+@app.post("/chat", response_model=ChatResponse, deprecated=True, summary="[Deprecated] Use /v1/chat/completions instead")
+async def legacy_chat_endpoint(req: ChatRequest):
+    """이 엔드포인트는 더 이상 사용되지 않습니다. /v1/chat/completions를 사용하세요."""
+    state = {"messages": [msg.model_dump() for msg in req.messages]}
     result = await agent.ainvoke(state)
     return ChatResponse(messages=result["messages"])
 
 # LangFlow 관련 엔드포인트
 @app.post("/flows/save")
-async def save_flow(req: SaveFlowRequest, db: Session = Depends(get_db)):
-    """LangFlow JSON을 데이터베이스에 저장합니다."""
+async def save_flow(req: SaveFlowRequest):
+    """LangFlow JSON을 파일로 저장합니다."""
     try:
+        # flows 디렉토리가 없으면 생성
+        flows_dir = "flows"
+        os.makedirs(flows_dir, exist_ok=True)
+        
+        # 파일명 생성 (특수문자 제거)
+        safe_name = "".join(c for c in req.name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"{safe_name}.json"
+        filepath = os.path.join(flows_dir, filename)
+        
         # 메타데이터 추가
         flow_data = req.flow_data.model_dump()
         flow_data["saved_name"] = req.name
         if req.description:
             flow_data["description"] = req.description
         
-        # 데이터베이스에 저장
-        db_flow = LangFlowService.create_flow(
-            db=db,
-            name=req.name,
-            flow_data=flow_data,
-            description=req.description
-        )
+        # JSON 파일로 저장
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(flow_data, f, indent=2, ensure_ascii=False)
         
-        return {
-            "message": f"Flow '{req.name}' saved successfully",
-            "id": db_flow.id,
-            "name": db_flow.name,
-            "created_at": db_flow.created_at.isoformat()
-        }
+        return {"message": f"Flow '{req.name}' saved successfully", "filename": filename}
     
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save flow: {str(e)}")
 
 @app.get("/flows/list", response_model=FlowListResponse)
-async def list_flows(db: Session = Depends(get_db)):
+async def list_flows():
     """저장된 LangFlow 목록을 반환합니다."""
     try:
-        db_flows = LangFlowService.get_all_flows(db)
-        
+        flows_dir = "flows"
         flows = []
-        for db_flow in db_flows:
-            flows.append({
-                "name": db_flow.name,
-                "id": str(db_flow.id),
-                "description": db_flow.description or "",
-                "created_at": db_flow.created_at.isoformat(),
-                "updated_at": db_flow.updated_at.isoformat()
-            })
+        
+        if os.path.exists(flows_dir):
+            for filename in os.listdir(flows_dir):
+                if filename.endswith('.json'):
+                    filepath = os.path.join(flows_dir, filename)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            flow_data = json.load(f)
+                        
+                        flows.append({
+                            "name": flow_data.get("saved_name", filename[:-5]),
+                            "id": flow_data.get("id", filename[:-5]),
+                            "description": flow_data.get("description", ""),
+                            "filename": filename
+                        })
+                    except Exception as e:
+                        print(f"Error reading flow file {filename}: {e}")
+                        continue
         
         return FlowListResponse(flows=flows)
     
@@ -226,26 +320,34 @@ async def list_flows(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to list flows: {str(e)}")
 
 @app.get("/flows/{flow_name}")
-async def get_flow(flow_name: str, db: Session = Depends(get_db)):
+async def get_flow(flow_name: str):
     """특정 LangFlow JSON을 반환합니다."""
     try:
-        # 이름으로 플로우 조회
-        db_flow = LangFlowService.get_flow_by_name(db, flow_name)
+        flows_dir = "flows"
         
-        if not db_flow:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
+        # 파일명으로 직접 찾기
+        if flow_name.endswith('.json'):
+            filename = flow_name
+        else:
+            filename = f"{flow_name}.json"
         
-        # JSON 데이터를 딕셔너리로 변환하여 반환
-        flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
+        filepath = os.path.join(flows_dir, filename)
         
-        # 메타데이터 추가
-        flow_data.update({
-            "id": db_flow.id,
-            "name": db_flow.name,
-            "description": db_flow.description,
-            "created_at": db_flow.created_at.isoformat(),
-            "updated_at": db_flow.updated_at.isoformat()
-        })
+        if not os.path.exists(filepath):
+            # 저장된 이름으로 찾기
+            for file in os.listdir(flows_dir):
+                if file.endswith('.json'):
+                    file_path = os.path.join(flows_dir, file)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        flow_data = json.load(f)
+                    if flow_data.get("saved_name") == flow_name:
+                        filepath = file_path
+                        break
+            else:
+                raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
+        
+        with open(filepath, 'r', encoding='utf-8') as f:
+            flow_data = json.load(f)
         
         return flow_data
     
@@ -255,99 +357,39 @@ async def get_flow(flow_name: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to get flow: {str(e)}")
 
 @app.delete("/flows/{flow_name}")
-async def delete_flow(flow_name: str, db: Session = Depends(get_db)):
+async def delete_flow(flow_name: str):
     """저장된 LangFlow를 삭제합니다."""
     try:
-        # 플로우 삭제 (소프트 삭제)
-        success = LangFlowService.delete_flow(db, flow_name)
+        flows_dir = "flows"
         
-        if not success:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
+        # 파일명으로 직접 찾기
+        if flow_name.endswith('.json'):
+            filename = flow_name
+        else:
+            filename = f"{flow_name}.json"
         
+        filepath = os.path.join(flows_dir, filename)
+        
+        if not os.path.exists(filepath):
+            # 저장된 이름으로 찾기
+            for file in os.listdir(flows_dir):
+                if file.endswith('.json'):
+                    file_path = os.path.join(flows_dir, file)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        flow_data = json.load(f)
+                    if flow_data.get("saved_name") == flow_name:
+                        filepath = file_path
+                        break
+            else:
+                raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
+        
+        os.remove(filepath)
         return {"message": f"Flow '{flow_name}' deleted successfully"}
     
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete flow: {str(e)}")
-
-# DB 관리 엔드포인트
-@app.get("/db/tables")
-async def get_table_info(db: Session = Depends(get_db)):
-    """데이터베이스 테이블 정보를 조회합니다."""
-    try:
-        table_info = DatabaseService.get_table_info(db)
-        return {"tables": table_info}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get table info: {str(e)}")
-
-@app.post("/db/query")
-async def execute_query(query: dict, db: Session = Depends(get_db)):
-    """SQL 쿼리를 실행합니다 (SELECT만 허용)."""
-    try:
-        sql_query = query.get("query", "").strip()
-        if not sql_query:
-            raise HTTPException(status_code=400, detail="Query is required")
-        
-        result = DatabaseService.execute_query(db, sql_query)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to execute query: {str(e)}")
-
-# 파일 기반 데이터를 DB로 마이그레이션하는 엔드포인트
-@app.post("/flows/migrate")
-async def migrate_flows_from_files(db: Session = Depends(get_db)):
-    """기존 파일 기반 LangFlow 데이터를 데이터베이스로 마이그레이션합니다."""
-    try:
-        flows_dir = "flows"
-        migrated_count = 0
-        errors = []
-        
-        if not os.path.exists(flows_dir):
-            return {"message": "No flows directory found", "migrated_count": 0}
-        
-        for filename in os.listdir(flows_dir):
-            if filename.endswith('.json'):
-                filepath = os.path.join(flows_dir, filename)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as f:
-                        flow_data = json.load(f)
-                    
-                    # 파일에서 메타데이터 추출
-                    name = flow_data.get("saved_name", filename[:-5])
-                    description = flow_data.get("description", "")
-                    
-                    # 데이터베이스에 저장 시도
-                    try:
-                        LangFlowService.create_flow(
-                            db=db,
-                            name=name,
-                            flow_data=flow_data,
-                            description=description
-                        )
-                        migrated_count += 1
-                        print(f"✅ Migrated flow: {name}")
-                    except ValueError as e:
-                        # 이미 존재하는 플로우는 건너뛰기
-                        if "already exists" in str(e):
-                            print(f"⚠️ Flow '{name}' already exists, skipping")
-                        else:
-                            errors.append(f"Flow '{name}': {str(e)}")
-                    
-                except Exception as e:
-                    errors.append(f"File '{filename}': {str(e)}")
-                    continue
-        
-        return {
-            "message": f"Migration completed. {migrated_count} flows migrated.",
-            "migrated_count": migrated_count,
-            "errors": errors
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to migrate flows: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

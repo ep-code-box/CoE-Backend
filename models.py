@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class ModelInfo(BaseModel):
     """사용 가능한 LLM 모델의 정보를 담는 Pydantic 모델입니다."""
+    # OpenWebUI 호환성을 위해 name 필드 추가
     model_id: str
     name: str
     description: str
@@ -68,6 +69,18 @@ class ModelRegistry:
     def get_default_model(self) -> Optional[ModelInfo]:
         """기본으로 설정된 모델 정보를 반환합니다."""
         return self._default_model
+
+    def register_model(self, model_id: str, name: str, description: str, provider: str):
+        """런타임에 새로운 모델을 동적으로 등록합니다."""
+        if not self.get_model(model_id):
+            new_model = ModelInfo(
+                model_id=model_id,
+                name=name,
+                description=description,
+                provider=provider
+            )
+            self._models.append(new_model)
+            print(f"✅ 동적 모델 등록 완료: {model_id}")
 
 # 애플리케이션 시작 시 모델 레지스트리 인스턴스를 생성합니다.
 model_registry = ModelRegistry()
