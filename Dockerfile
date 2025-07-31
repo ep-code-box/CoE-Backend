@@ -19,5 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 5. 소스 코드 복사
 COPY . .
 
+# 6. 포트 노출
+EXPOSE 8000
+
 # 6. 컨테이너 실행 시 실행할 명령어
-CMD ["python", "main.py"]
+# uvicorn을 사용하여 프로덕션 환경에서 직접 FastAPI 앱 실행
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -22,6 +22,16 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[Message]
 
+# OpenWebUI 호환을 위한 요청 스키마
+class OpenAIChatRequest(BaseModel):
+    model: str
+    messages: List[Message]
+    stream: bool = False
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = None
+    # 다른 OpenAI 파라미터들도 필요에 따라 추가 가능
+
+
 class ChatResponse(BaseModel):
     messages: List[dict]
 
