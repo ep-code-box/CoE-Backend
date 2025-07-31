@@ -36,32 +36,6 @@ class LangFlow(Base):
     is_active = Column(Boolean, default=True)
 
 # RAG Pipeline 분석 결과 테이블 모델
-class RagAnalysisResult(Base):
-    __tablename__ = "rag_analysis_results"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    analysis_id = Column(String(255), unique=True, index=True, nullable=False)
-    git_url = Column(String(500), index=True, nullable=False)  # Git URL을 키로 사용
-    analysis_date = Column(DateTime, default=datetime.utcnow, nullable=False)  # 분석일자
-    status = Column(String(50), nullable=False)  # pending, running, completed, failed
-    repository_count = Column(Integer, default=0)
-    total_files = Column(Integer, default=0)
-    total_lines_of_code = Column(Integer, default=0)
-    
-    # 분석 결과 데이터 (JSON 형태로 저장)
-    repositories_data = Column(Text, nullable=True)  # RepositoryAnalysis 목록을 JSON으로 저장
-    correlation_data = Column(Text, nullable=True)   # CorrelationAnalysis를 JSON으로 저장
-    tech_specs_summary = Column(Text, nullable=True) # 기술스펙 요약을 JSON으로 저장
-    
-    # 메타데이터
-    created_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime, nullable=True)
-    error_message = Column(Text, nullable=True)
-    
-    # 인덱스 추가
-    __table_args__ = (
-        {'mysql_charset': 'utf8mb4'},
-    )
 
 # 데이터베이스 테이블 생성
 def create_tables():

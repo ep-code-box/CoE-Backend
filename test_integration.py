@@ -50,39 +50,6 @@ def get_latest_analysis_id():
         print(f"❌ 분석 결과 조회 중 오류: {e}")
         return None
 
-def test_guide_extraction_direct():
-    """가이드 추출 함수 직접 테스트"""
-    try:
-        import sys
-        import os
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        
-        from tools.guide_extraction_tool import get_rag_analysis_result, extract_git_urls_from_analysis
-        
-        print("\n=== 직접 RAG Pipeline 연결 테스트 ===")
-        
-        # 최신 분석 결과 가져오기
-        analysis_data = get_rag_analysis_result()
-        
-        if analysis_data:
-            print(f"✅ 분석 결과 가져오기 성공")
-            print(f"분석 ID: {analysis_data.get('analysis_id', 'N/A')}")
-            print(f"상태: {analysis_data.get('status', 'N/A')}")
-            print(f"레포지토리 수: {len(analysis_data.get('repositories', []))}")
-            
-            # Git URL 추출 테스트
-            git_urls = extract_git_urls_from_analysis(analysis_data)
-            print(f"Git URLs: {git_urls}")
-            
-            return True
-        else:
-            print("❌ 분석 결과를 가져올 수 없습니다.")
-            return False
-            
-    except Exception as e:
-        print(f"❌ 직접 테스트 중 오류: {e}")
-        return False
-
 def test_backend_server():
     """Backend 서버 연결 테스트"""
     try:
@@ -99,15 +66,9 @@ def test_backend_server():
         print("Backend 서버를 먼저 실행해주세요: cd CoE-Backend && python main.py")
         return False
 
-def test_chat_with_guide_extraction():
+def test_chat_with_guide_extraction(analysis_id: str):
     """채팅을 통한 가이드 추출 테스트"""
     try:
-        # 최신 분석 ID 가져오기
-        analysis_id = get_latest_analysis_id()
-        if not analysis_id:
-            print("❌ 사용할 분석 결과가 없습니다.")
-            return False
-        
         # 채팅 요청 데이터 (올바른 스키마 형식)
         chat_data = {
             "messages": [
@@ -118,7 +79,7 @@ def test_chat_with_guide_extraction():
             ]
         }
         
-        print(f"\n=== 채팅 API 테스트 ===")
+        print(f"\n🚀 3. 채팅 API를 통한 가이드 추출 테스트")
         print(f"요청 메시지: {chat_data['messages'][0]['content']}")
         
         response = requests.post(
@@ -145,23 +106,25 @@ def test_chat_with_guide_extraction():
 def main():
     print("🧪 가이드 추출 도구 통합 테스트 시작\n")
     
-    # 1. RAG Pipeline 연결 테스트
+    # 1. 서버 연결 확인
+    print("🚀 1. 서버 연결 확인")
     if not test_rag_pipeline_connection():
         print("\n❌ RAG Pipeline 서버를 먼저 실행해주세요:")
         print("cd CoE-RagPipeline && python main.py")
-        return
-    
-    # 2. 직접 연결 테스트
-    if not test_guide_extraction_direct():
-        print("\n❌ 직접 연결 테스트 실패")
-        return
-    
-    # 3. Backend 서버 테스트
+        sys.exit(1)
+
     if not test_backend_server():
-        return
-    
-    # 4. 전체 플로우 테스트
-    if test_chat_with_guide_extraction():
+        sys.exit(1)
+
+    # 2. 테스트 데이터 준비 (최신 분석 ID 가져오기)
+    print("\n🚀 2. 테스트 데이터 준비 (최신 분석 ID 조회)")
+    analysis_id = get_latest_analysis_id()
+    if not analysis_id:
+        print("\n❌ 테스트에 사용할 분석 결과가 없습니다. 먼저 RAG Pipeline에서 분석을 실행해주세요.")
+        sys.exit(1)
+
+    # 3. 전체 플로우 테스트
+    if test_chat_with_guide_extraction(analysis_id):
         print("\n🎉 모든 테스트 성공!")
     else:
         print("\n❌ 통합 테스트 실패")
