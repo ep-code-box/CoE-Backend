@@ -2,6 +2,8 @@ import json
 import os
 from typing import Dict, Any
 from schemas import ChatState
+from database import SessionLocal
+from db_service import LangFlowService
 
 # LangFlow 실행 도구 설명
 langflow_execute_description = {
@@ -43,51 +45,34 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
                 }]
             }
         
-        # flows 디렉토리에서 해당 플로우 찾기
-        flows_dir = "flows"
-        flow_path = None
-        
-        if os.path.exists(flows_dir):
-            # 직접 파일명으로 찾기
-            direct_path = os.path.join(flows_dir, f"{flow_name}.json")
-            if os.path.exists(direct_path):
-                flow_path = direct_path
-            else:
-                # 저장된 이름으로 찾기
-                for filename in os.listdir(flows_dir):
-                    if filename.endswith('.json'):
-                        filepath = os.path.join(flows_dir, filename)
-                        try:
-                            with open(filepath, 'r', encoding='utf-8') as f:
-                                flow_data = json.load(f)
-                            if flow_data.get("saved_name") == flow_name:
-                                flow_path = filepath
-                                break
-                        except Exception:
-                            continue
-        
-        if not flow_path:
+        # 데이터베이스에서 플로우 찾기
+        db = SessionLocal()
+        try:
+            db_flow = LangFlowService.get_flow_by_name(db, flow_name)
+            
+            if not db_flow:
+                return {
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"'{flow_name}' 플로우를 찾을 수 없습니다. 저장된 플로우 목록을 확인해보세요."
+                    }]
+                }
+            
+            # 플로우 데이터 로드
+            flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
+            
+            # 실제 LangFlow 실행 로직 (현재는 시뮬레이션)
+            # 실제 구현에서는 LangFlow 엔진을 사용하여 플로우를 실행해야 합니다
+            result = simulate_langflow_execution(flow_data, state.get("original_input", ""))
+            
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"'{flow_name}' 플로우를 찾을 수 없습니다. 저장된 플로우 목록을 확인해보세요."
+                    "content": f"✅ LangFlow '{flow_name}' 실행 완료!\n\n실행 결과:\n{result}"
                 }]
             }
-        
-        # 플로우 JSON 로드
-        with open(flow_path, 'r', encoding='utf-8') as f:
-            flow_data = json.load(f)
-        
-        # 실제 LangFlow 실행 로직 (현재는 시뮬레이션)
-        # 실제 구현에서는 LangFlow 엔진을 사용하여 플로우를 실행해야 합니다
-        result = simulate_langflow_execution(flow_data, state.get("original_input", ""))
-        
-        return {
-            "messages": [{
-                "role": "assistant",
-                "content": f"✅ LangFlow '{flow_name}' 실행 완료!\n\n실행 결과:\n{result}"
-            }]
-        }
+        finally:
+            db.close()
         
     except Exception as e:
         return {
@@ -100,51 +85,42 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
 def list_langflows_node(state: ChatState) -> Dict[str, Any]:
     """저장된 LangFlow 목록을 조회하는 노드"""
     try:
-        flows_dir = "flows"
-        flows = []
-        
-        if os.path.exists(flows_dir):
-            for filename in os.listdir(flows_dir):
-                if filename.endswith('.json'):
-                    filepath = os.path.join(flows_dir, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            flow_data = json.load(f)
-                        
-                        flow_info = {
-                            "name": flow_data.get("saved_name", filename[:-5]),
-                            "description": flow_data.get("description", "설명 없음"),
-                            "nodes": len(flow_data.get("data", {}).get("nodes", [])),
-                            "edges": len(flow_data.get("data", {}).get("edges", []))
-                        }
-                        flows.append(flow_info)
-                    except Exception as e:
-                        print(f"Error reading flow file {filename}: {e}")
-                        continue
-        
-        if not flows:
+        # 데이터베이스에서 플로우 목록 조회
+        db = SessionLocal()
+        try:
+            db_flows = LangFlowService.get_all_flows(db)
+            
+            if not db_flows:
+                return {
+                    "messages": [{
+                        "role": "assistant",
+                        "content": "📋 저장된 LangFlow가 없습니다.\n\n'/flows/save' API를 사용하여 플로우를 저장할 수 있습니다."
+                    }]
+                }
+            
+            # 플로우 목록 포맷팅
+            flow_list = "📋 저장된 LangFlow 목록:\n\n"
+            for i, db_flow in enumerate(db_flows, 1):
+                # 플로우 데이터에서 노드/엣지 수 계산
+                flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
+                nodes_count = len(flow_data.get("data", {}).get("nodes", []))
+                edges_count = len(flow_data.get("data", {}).get("edges", []))
+                
+                flow_list += f"{i}. **{db_flow.name}**\n"
+                flow_list += f"   - 설명: {db_flow.description or '설명 없음'}\n"
+                flow_list += f"   - 노드 수: {nodes_count}, 엣지 수: {edges_count}\n"
+                flow_list += f"   - 생성일: {db_flow.created_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+            
+            flow_list += "💡 플로우를 실행하려면 '플로우명 실행' 또는 'execute 플로우명'이라고 말해주세요."
+            
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": "📋 저장된 LangFlow가 없습니다.\n\n'/flows/save' API를 사용하여 플로우를 저장할 수 있습니다."
+                    "content": flow_list
                 }]
             }
-        
-        # 플로우 목록 포맷팅
-        flow_list = "📋 저장된 LangFlow 목록:\n\n"
-        for i, flow in enumerate(flows, 1):
-            flow_list += f"{i}. **{flow['name']}**\n"
-            flow_list += f"   - 설명: {flow['description']}\n"
-            flow_list += f"   - 노드 수: {flow['nodes']}, 엣지 수: {flow['edges']}\n\n"
-        
-        flow_list += "💡 플로우를 실행하려면 '플로우명 실행' 또는 'execute 플로우명'이라고 말해주세요."
-        
-        return {
-            "messages": [{
-                "role": "assistant",
-                "content": flow_list
-            }]
-        }
+        finally:
+            db.close()
         
     except Exception as e:
         return {
