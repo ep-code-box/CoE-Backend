@@ -3,6 +3,8 @@ uvicorn
 langgraph
 langchain
 langchain-openai
+langchain-chroma
+chromadb
 openai
 requests
 pydantic

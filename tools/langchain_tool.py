@@ -4,7 +4,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from pydantic import BaseModel, Field
-from schemas import ChatState
+from core.schemas import ChatState
 
 
 # 라우터 프롬프트에 사용될 도구 설명

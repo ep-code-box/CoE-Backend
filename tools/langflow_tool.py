@@ -1,9 +1,9 @@
 import json
 import os
 from typing import Dict, Any
-from schemas import ChatState
-from database import SessionLocal
-from db_service import LangFlowService
+from core.schemas import ChatState
+from core.database import SessionLocal
+from services.db_service import LangFlowService
 
 # LangFlow 실행 도구 설명
 langflow_execute_description = {
