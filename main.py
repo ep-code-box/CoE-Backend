@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import logging
+import os
 
 # 분리된 모듈에서 필요한 클래스와 함수 가져오기
 from core.graph_builder import build_agent_graph
@@ -13,7 +14,13 @@ from api.health_api import router as health_router
 from api.test_api import router as test_router
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.vector.vector_api import router as vector_router
+from api.embeddings_api import router as embeddings_router
+from api.auth_api import router as auth_router
 from core.database import init_database
+from core.middleware import (
+    AuthenticationMiddleware, RateLimitMiddleware, 
+    SecurityHeadersMiddleware, RequestLoggingMiddleware
+)
 
 # 데이터베이스 초기화
 print("🔄 Initializing database...")
@@ -32,7 +39,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS 미들웨어 추가
+# 미들웨어 추가 (순서 중요: 나중에 추가된 것이 먼저 실행됨)
+# 1. CORS 미들웨어 (가장 먼저 실행되어야 함)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -40,6 +48,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 2. 보안 헤더 미들웨어
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 3. 요청 로깅 미들웨어 (개발 환경에서만)
+if os.getenv("APP_ENV") == "development":
+    app.add_middleware(RequestLoggingMiddleware, log_body=True)
+
+# 4. 속도 제한 미들웨어
+rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
+
+# 5. 인증 미들웨어 (선택적 활성화)
+enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
+app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -83,10 +106,12 @@ set_agent_info(agent, agent_model_id)
 # 라우터들 등록
 app.include_router(health_router)
 app.include_router(test_router)
+app.include_router(auth_router)
 app.include_router(models_router)
 app.include_router(flows_router)
 app.include_router(coding_assistant_router)
 app.include_router(vector_router)
+app.include_router(embeddings_router)
 app.include_router(chat_router)
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from langchain_openai import OpenAIEmbeddings
+from .embedding_service import EmbeddingService
 from langchain_chroma import Chroma
 from langchain.schema import Document
 import chromadb
@@ -40,7 +41,20 @@ class ChromaService:
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
         
-        # OpenAI Embeddings 초기화
+        # 임베딩 서비스 초기화 - 로컬 임베딩 서비스 우선 사용
+        try:
+            self.embedding_service = EmbeddingService()
+            if self.embedding_service.health_check():
+                logger.info("Using local embedding service")
+                self.use_local_embeddings = True
+            else:
+                logger.warning("Local embedding service not available, falling back to OpenAI")
+                self.use_local_embeddings = False
+        except Exception as e:
+            logger.warning(f"Failed to initialize local embedding service: {e}, using OpenAI")
+            self.use_local_embeddings = False
+        
+        # OpenAI Embeddings 초기화 (fallback)
         embedding_kwargs = {"api_key": self.openai_api_key}
         if self.openai_api_base:
             embedding_kwargs["base_url"] = self.openai_api_base
@@ -84,17 +98,46 @@ class ChromaService:
             유사한 문서 리스트
         """
         try:
-            if filter_metadata:
-                results = self.vectorstore.similarity_search(
-                    query, 
-                    k=k, 
-                    filter=filter_metadata
+            # 로컬 임베딩 서비스 사용 시 직접 검색
+            if self.use_local_embeddings:
+                logger.info("Using local embedding service for search")
+                
+                # 쿼리 임베딩 생성
+                query_embedding = self.embedding_service.create_embeddings([query])[0]
+                
+                # ChromaDB에서 직접 검색
+                collection = self.chroma_client.get_collection(self.collection_name)
+                
+                # 검색 수행
+                where_filter = filter_metadata if filter_metadata else None
+                results = collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=k,
+                    where=where_filter
                 )
+                
+                # Document 객체로 변환
+                documents = []
+                if results['documents'] and results['documents'][0]:
+                    for i, doc_text in enumerate(results['documents'][0]):
+                        metadata = results['metadatas'][0][i] if results['metadatas'] and results['metadatas'][0] else {}
+                        documents.append(Document(page_content=doc_text, metadata=metadata))
+                
+                logger.info(f"Found {len(documents)} similar documents using local embeddings")
+                return documents
             else:
-                results = self.vectorstore.similarity_search(query, k=k)
-            
-            logger.info(f"Found {len(results)} similar documents for query: {query[:50]}...")
-            return results
+                # OpenAI 임베딩 사용 (기존 방식)
+                if filter_metadata:
+                    results = self.vectorstore.similarity_search(
+                        query, 
+                        k=k, 
+                        filter=filter_metadata
+                    )
+                else:
+                    results = self.vectorstore.similarity_search(query, k=k)
+                
+                logger.info(f"Found {len(results)} similar documents using OpenAI embeddings")
+                return results
             
         except Exception as e:
             logger.error(f"Failed to search similar documents: {e}")
@@ -116,17 +159,51 @@ class ChromaService:
             (문서, 점수) 튜플 리스트
         """
         try:
-            if filter_metadata:
-                results = self.vectorstore.similarity_search_with_score(
-                    query, 
-                    k=k, 
-                    filter=filter_metadata
+            # 로컬 임베딩 서비스 사용 시 직접 검색
+            if self.use_local_embeddings:
+                logger.info("Using local embedding service for search with score")
+                
+                # 쿼리 임베딩 생성
+                query_embedding = self.embedding_service.create_embeddings([query])[0]
+                
+                # ChromaDB에서 직접 검색
+                collection = self.chroma_client.get_collection(self.collection_name)
+                
+                # 검색 수행
+                where_filter = filter_metadata if filter_metadata else None
+                results = collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=k,
+                    where=where_filter,
+                    include=['documents', 'metadatas', 'distances']
                 )
+                
+                # (Document, score) 튜플로 변환
+                doc_score_pairs = []
+                if results['documents'] and results['documents'][0]:
+                    for i, doc_text in enumerate(results['documents'][0]):
+                        metadata = results['metadatas'][0][i] if results['metadatas'] and results['metadatas'][0] else {}
+                        # ChromaDB는 거리를 반환하므로 유사도 점수로 변환 (1 - distance)
+                        distance = results['distances'][0][i] if results['distances'] and results['distances'][0] else 1.0
+                        score = 1.0 - distance
+                        document = Document(page_content=doc_text, metadata=metadata)
+                        doc_score_pairs.append((document, score))
+                
+                logger.info(f"Found {len(doc_score_pairs)} similar documents with scores using local embeddings")
+                return doc_score_pairs
             else:
-                results = self.vectorstore.similarity_search_with_score(query, k=k)
-            
-            logger.info(f"Found {len(results)} similar documents with scores for query: {query[:50]}...")
-            return results
+                # OpenAI 임베딩 사용 (기존 방식)
+                if filter_metadata:
+                    results = self.vectorstore.similarity_search_with_score(
+                        query, 
+                        k=k, 
+                        filter=filter_metadata
+                    )
+                else:
+                    results = self.vectorstore.similarity_search_with_score(query, k=k)
+                
+                logger.info(f"Found {len(results)} similar documents with scores using OpenAI embeddings")
+                return results
             
         except Exception as e:
             logger.error(f"Failed to search similar documents with score: {e}")
@@ -143,9 +220,44 @@ class ChromaService:
             추가된 문서의 ID 리스트
         """
         try:
-            doc_ids = self.vectorstore.add_documents(documents)
-            logger.info(f"Successfully added {len(documents)} documents to ChromaDB")
-            return doc_ids
+            # 로컬 임베딩 서비스 사용 시 직접 임베딩 생성
+            if self.use_local_embeddings:
+                logger.info("Using local embedding service for document addition")
+                
+                # 문서 텍스트 추출
+                texts = [doc.page_content for doc in documents]
+                
+                # 로컬 임베딩 서비스로 임베딩 생성
+                embeddings = self.embedding_service.create_embeddings(texts)
+                
+                # ChromaDB에 직접 추가
+                collection = self.chroma_client.get_or_create_collection(
+                    name=self.collection_name,
+                    metadata={"hnsw:space": "cosine"}
+                )
+                
+                # 문서 ID 생성
+                import uuid
+                doc_ids = [str(uuid.uuid4()) for _ in documents]
+                
+                # 메타데이터 준비
+                metadatas = [doc.metadata for doc in documents]
+                
+                # ChromaDB에 추가
+                collection.add(
+                    embeddings=embeddings,
+                    documents=texts,
+                    metadatas=metadatas,
+                    ids=doc_ids
+                )
+                
+                logger.info(f"Successfully added {len(documents)} documents using local embeddings")
+                return doc_ids
+            else:
+                # OpenAI 임베딩 사용 (기존 방식)
+                doc_ids = self.vectorstore.add_documents(documents)
+                logger.info(f"Successfully added {len(documents)} documents using OpenAI embeddings")
+                return doc_ids
             
         except Exception as e:
             logger.error(f"Failed to add documents to ChromaDB: {e}")

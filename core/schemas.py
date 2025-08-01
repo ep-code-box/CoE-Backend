@@ -73,3 +73,53 @@ class FlowListResponse(BaseModel):
 class ExecuteFlowRequest(BaseModel):
     flow_name: str
     inputs: Optional[Dict[str, Any]] = None
+
+# 인증 관련 스키마
+class UserRegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+class UserLoginRequest(BaseModel):
+    username: str  # username 또는 email
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    full_name: Optional[str]
+    is_active: bool
+    is_superuser: bool
+    created_at: str  # datetime을 문자열로 직렬화
+    last_login: Optional[str]
+    roles: List[str] = []
+
+class UserUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class RoleResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    permissions: List[str]
+
+class ErrorResponse(BaseModel):
+    detail: str
+    error_code: Optional[str] = None
