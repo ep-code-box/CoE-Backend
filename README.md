@@ -36,17 +36,78 @@
 ```
 CoE-Backend/
 ├── main.py                 # FastAPI 앱 및 메인 LangGraph 조립기
-├── llm_client.py           # LLM 클라이언트 초기화
-├── models.py               # 모델 정보 관리 (models.json 로드)
-├── schemas.py              # Pydantic 스키마 (데이터 모델)
 ├── Dockerfile              # Docker 이미지 빌드 파일
 ├── .env.example            # 환경 변수 예시 파일
 ├── requirements.txt        # 프로젝트 의존성
-├── tools/                  # 에이전트가 사용하는 도구 모듈
-│   ├── registry.py         # 도구를 동적으로 로드하는 레지스트리
-│   └── ... (각종 도구 파일)
-├── flows/                  # LangFlow에서 저장된 워크플로우 JSON 파일
-└── README.md
+├── README.md               # 프로젝트 문서
+├── README_CODING_ASSISTANT.md # 코딩 어시스턴트 상세 가이드
+├── debug_routes.py         # 디버그용 라우트
+├── server.log              # 서버 로그 파일
+├── test_coding_assistant.py # 코딩 어시스턴트 테스트
+├── api/                    # API 엔드포인트 모듈
+│   ├── __init__.py
+│   ├── auth_api.py         # 인증 관련 API
+│   ├── chat_api.py         # 채팅 API (OpenAI 호환)
+│   ├── embeddings_api.py   # 임베딩 API
+│   ├── flows_api.py        # LangFlow 워크플로우 API
+│   ├── health_api.py       # 헬스체크 API
+│   ├── models_api.py       # 모델 정보 API
+│   ├── test_api.py         # 테스트 API
+│   ├── coding_assistant/   # 코딩 어시스턴트 API
+│   │   ├── __init__.py
+│   │   └── code_api.py     # 코드 분석/생성 API
+│   └── vector/             # 벡터 검색 API
+│       ├── __init__.py
+│       └── vector_api.py   # 벡터 검색 엔드포인트
+├── config/                 # 설정 파일
+│   ├── __init__.py
+│   └── models.json         # 지원 모델 설정
+├── core/                   # 핵심 비즈니스 로직
+│   ├── __init__.py
+│   ├── auth.py             # 인증 및 권한 관리
+│   ├── database.py         # 데이터베이스 연결 및 모델
+│   ├── graph_builder.py    # LangGraph 동적 구성
+│   ├── llm_client.py       # LLM 클라이언트 초기화
+│   ├── middleware.py       # 미들웨어 (CORS, 로깅 등)
+│   ├── models.py           # 데이터 모델 관리
+│   └── schemas.py          # Pydantic 스키마 정의
+├── flows/                  # LangFlow 워크플로우 저장소
+├── routers/                # 라우터 모듈
+│   ├── __init__.py
+│   └── router.py           # 메인 라우터 설정
+├── services/               # 비즈니스 서비스 레이어
+│   ├── __init__.py
+│   ├── analysis_service.py # 분석 서비스
+│   ├── db_service.py       # 데이터베이스 서비스
+│   └── vector/             # 벡터 관련 서비스
+│       ├── __init__.py
+│       ├── chroma_service.py    # ChromaDB 서비스
+│       └── embedding_service.py # 임베딩 서비스
+├── tools/                  # 에이전트 도구 모듈
+│   ├── __init__.py
+│   ├── registry.py         # 도구 동적 로딩 레지스트리
+│   ├── api_tool.py         # API 호출 도구
+│   ├── basic_tools.py      # 기본 도구들
+│   ├── class_tool.py       # 클래스 기반 도구
+│   ├── guide_extraction_tool.py # 가이드 추출 도구
+│   ├── human_tool.py       # Human-in-the-Loop 도구
+│   ├── langchain_tool.py   # LangChain 연동 도구
+│   ├── langflow_tool.py    # LangFlow 연동 도구
+│   ├── subgraph_tool.py    # 서브그래프 도구
+│   ├── utils.py            # 도구 유틸리티
+│   └── coding_assistant/   # 코딩 어시스턴트 도구
+│       ├── __init__.py
+│       ├── code_generation_tool.py  # 코드 생성 도구
+│       ├── code_refactoring_tool.py # 리팩토링 도구
+│       ├── code_review_tool.py      # 코드 리뷰 도구
+│       └── test_generation_tool.py  # 테스트 생성 도구
+└── utils/                  # 유틸리티 함수
+    ├── __init__.py
+    ├── streaming_utils.py  # 스트리밍 관련 유틸리티
+    └── coding_assistant/   # 코딩 어시스턴트 유틸리티
+        ├── __init__.py
+        ├── code_parser.py      # 코드 파싱 유틸리티
+        └── template_manager.py # 템플릿 관리 유틸리티
 ```
 
 ## 🚀 시작하기
@@ -119,7 +180,88 @@ curl -X POST http://localhost:8000/flows/save \
 
 ## 💬 사용 예시 및 테스트
 
-프로젝트의 모든 기능에 대한 자세한 테스트 시나리오는 `sample.md` 파일을 참고하세요.
+### 🤖 AI 에이전트 채팅 테스트
+
+```bash
+# OpenAI 호환 채팅 API 테스트
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "coe-agent-v1",
+    "messages": [
+      {
+        "role": "user",
+        "content": "안녕하세요! CoE 에이전트 기능을 테스트해보고 싶습니다."
+      }
+    ]
+  }'
+```
+
+### 👨‍💻 코딩 어시스턴트 테스트
+
+```bash
+# 지원 언어 목록 조회
+curl -X GET "http://localhost:8000/api/coding-assistant/languages"
+
+# Python 코드 분석
+curl -X POST "http://localhost:8000/api/coding-assistant/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "language": "python",
+    "code": "def hello_world():\n    print(\"Hello, World!\")"
+  }'
+
+# 코드 생성
+curl -X POST "http://localhost:8000/api/coding-assistant/generate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "language": "python",
+    "description": "사용자 인증을 위한 JWT 토큰 생성 함수"
+  }'
+```
+
+### 🔍 벡터 검색 테스트
+
+```bash
+# 벡터 데이터베이스 정보 조회
+curl -X GET "http://localhost:8000/vector/info"
+
+# 문서 추가
+curl -X POST "http://localhost:8000/vector/add" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "documents": [
+      {
+        "content": "CoE 플랫폼은 AI 기반 소프트웨어 개발 분석 도구입니다.",
+        "metadata": {"source": "readme", "type": "documentation"}
+      }
+    ]
+  }'
+
+# 벡터 검색
+curl -X POST "http://localhost:8000/vector/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "AI 기반 개발 도구",
+    "k": 5
+  }'
+```
+
+### 🔄 LangFlow 워크플로우 테스트
+
+```bash
+# 워크플로우 저장
+curl -X POST "http://localhost:8000/flows/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test_workflow",
+    "description": "테스트용 워크플로우",
+    "flow_data": {"nodes": [], "edges": []}
+  }'
+
+# 워크플로우 목록 조회
+curl -X GET "http://localhost:8000/flows/list"
+```
 
 ## 🛠️ 새로운 도구 추가하기
 
@@ -153,42 +295,52 @@ def my_tool_node(state: ChatState) -> Dict[str, Any]:
 
 ## 📚 API 엔드포인트
 
-### 에이전트 및 모델
-- **`POST /v1/chat/completions`**: (핵심) OpenAI 호환 채팅 API. OpenWebUI와 연동됩니다.
-  - `model` 필드에 `coe-agent-v1`을 지정하면 LangGraph 에이전트가 실행됩니다.
-  - 다른 모델 ID를 지정하면 해당 LLM을 직접 호출하는 프록시 역할을 합니다.
-- **`GET /v1/models`**: 사용 가능한 모델 목록을 반환합니다. (`coe-agent-v1` 포함)
+### 🤖 AI 에이전트 및 채팅
+- **`POST /v1/chat/completions`**: (핵심) OpenAI 호환 채팅 API
+  - `model: "coe-agent-v1"`: LangGraph 에이전트 실행
+  - `model: "gpt-4o-mini"` 등: 직접 LLM 호출 (프록시)
+  - OpenWebUI, LangFlow와 완벽 호환
+- **`GET /v1/models`**: 사용 가능한 모델 목록 (4개 모델 지원)
 
-### 임베딩 및 벡터 검색
-- **`POST /v1/embeddings`**: 텍스트를 벡터로 변환하는 임베딩 API
-  - 한국어 특화 모델(`ko-sentence-bert`) 및 다국어 모델 지원
-  - OpenAI 호환 API 형식으로 제공
-- **`POST /vector/search`**: 벡터 유사도 검색 API
-  - ChromaDB를 통한 고성능 벡터 검색
+### 🔍 벡터 검색 및 임베딩
+- **`POST /v1/embeddings`**: OpenAI 호환 임베딩 API
+  - 한국어 특화 모델(`ko-sentence-bert`) 지원
+  - 다국어 모델(`text-embedding-ada-002`) 지원
+- **`POST /vector/search`**: 벡터 유사도 검색
+  - ChromaDB 기반 고성능 검색
   - 메타데이터 필터링 지원
-- **`POST /vector/upsert`**: 벡터 데이터 저장/업데이트 API
-  - 문서와 메타데이터를 함께 저장
+- **`POST /vector/add`**: 벡터 문서 추가
+  - 자동 임베딩 및 저장
   - 배치 처리 지원
+- **`GET /vector/info`**: 벡터 데이터베이스 정보 조회
 
-### RAG (Retrieval-Augmented Generation)
-- **`POST /rag/query`**: RAG 기반 질의응답 API
-  - 벡터 검색과 LLM 추론을 결합
-  - 컨텍스트 기반 정확한 답변 생성
-- **`POST /rag/index`**: 문서 인덱싱 API
-  - 대용량 문서를 청크 단위로 분할하여 인덱싱
-  - 자동 임베딩 및 벡터 저장
+### 👨‍💻 코딩 어시스턴트 (10개 언어 지원)
+- **`GET /api/coding-assistant/languages`**: 지원 언어 목록 조회
+- **`POST /api/coding-assistant/analyze`**: 코드 분석 및 메트릭 제공
+- **`POST /api/coding-assistant/template`**: 언어별 코드 템플릿 생성
+- **`POST /api/coding-assistant/generate`**: AI 기반 코드 생성
+- **`POST /api/coding-assistant/review`**: 코드 리뷰 및 개선 제안
+- **`POST /api/coding-assistant/refactor`**: 코드 리팩토링 제안
+- **`POST /api/coding-assistant/test`**: 테스트 코드 자동 생성
+- **`POST /api/coding-assistant/document`**: 코드 문서화 자동 생성
 
-### LangFlow 관리
-- **`POST /flows/save`**: LangFlow 워크플로우를 JSON 파일로 저장합니다.
-- **`GET /flows/list`**: 저장된 모든 워크플로우의 목록을 반환합니다.
-- **`GET /flows/{flow_name}`**: 특정 워크플로우의 JSON 데이터를 조회합니다.
-- **`DELETE /flows/{flow_name}`**: 특정 워크플로우를 삭제합니다.
+### 🔄 LangFlow 워크플로우 관리
+- **`POST /flows/save`**: 워크플로우 저장 (MariaDB)
+- **`GET /flows/list`**: 저장된 워크플로우 목록
+- **`GET /flows/{flow_name}`**: 특정 워크플로우 조회
+- **`DELETE /flows/{flow_name}`**: 워크플로우 삭제
 
-### 모델 관리
-- **`GET /models/list`**: 등록된 모든 모델 정보 조회
-- **`POST /models/add`**: 새로운 모델 등록
-- **`PUT /models/{model_id}`**: 기존 모델 정보 업데이트
-- **`DELETE /models/{model_id}`**: 모델 등록 해제
+### 🔐 인증 및 사용자 관리
+- **`POST /auth/register`**: 사용자 등록
+- **`POST /auth/login`**: 로그인 및 토큰 발급
+- **`POST /auth/refresh`**: 토큰 갱신
+- **`POST /auth/logout`**: 로그아웃
+- **`GET /auth/profile`**: 사용자 프로필 조회
+
+### 🏥 시스템 관리
+- **`GET /health`**: 서비스 상태 확인
+- **`GET /test/db`**: 데이터베이스 연결 테스트
+- **`GET /test/vector`**: 벡터 데이터베이스 테스트
 
 ## 🔧 고급 설정
 

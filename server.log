@@ -1,44 +1,45 @@
-✅ 3개의 모델을 성공적으로 로드했습니다. (기본 모델: ax4)
-✅ Initialized API-based Embedding Model (text-embedding-3-small).
-✅ 동적 모델 등록 완료: coe-agent-v1
-🚀 Starting server in development (hot-reload enabled) mode.
 INFO:     Will watch for changes in these directories: ['/Users/a08418/Documents/CoE/CoE-Backend']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [99339] using WatchFiles
+INFO:     Started reloader process [80384] using WatchFiles
 ✅ 3개의 모델을 성공적으로 로드했습니다. (기본 모델: ax4)
 ✅ Initialized API-based Embedding Model (text-embedding-3-small).
+❌ Redis 연결 실패: Error 61 connecting to localhost:6379. Connection refused.
+🔄 Initializing database...
+🔄 데이터베이스 초기화 중...
+❌ MariaDB 연결 실패: (pymysql.err.OperationalError) (2003, "Can't connect to MySQL server on 'localhost' ([Errno 61] Connection refused)")
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+❌ Database initialization failed
 ✅ 동적 모델 등록 완료: coe-agent-v1
-INFO:     Started server process [99372]
+🚀 Starting server in development (hot-reload enabled) mode.
+INFO:     Started server process [80589]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     127.0.0.1:53697 - "POST /v1/chat/completions HTTP/1.1" 422 Unprocessable Content
-INFO:     127.0.0.1:53701 - "POST /v1/chat/completions HTTP/1.1" 422 Unprocessable Content
-INFO:     127.0.0.1:53742 - "POST /v1/chat/completions HTTP/1.1" 422 Unprocessable Content
-INFO:     127.0.0.1:53746 - "POST /v1/chat/completions HTTP/1.1" 422 Unprocessable Content
-WARNING:  WatchFiles detected changes in 'test_api.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [99372]
-✅ 3개의 모델을 성공적으로 로드했습니다. (기본 모델: ax4)
-✅ Initialized API-based Embedding Model (text-embedding-3-small).
-✅ 동적 모델 등록 완료: coe-agent-v1
-INFO:     Started server process [99888]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-🤖[Router]: Error - 라우터 API 호출에 실패했습니다: <html>
-<head><title>401 Authorization Required</title></head>
-<body>
-<center><h1>401 Authorization Required</h1></center>
-<hr><center>nginx</center>
-</body>
-</html>
-INFO:     127.0.0.1:53754 - "POST /v1/chat/completions HTTP/1.1" 200 OK
-INFO:     127.0.0.1:53759 - "GET /docs HTTP/1.1" 200 OK
-WARNING:  WatchFiles detected changes in 'test_import.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
-INFO:     Finished server process [99888]
-WARNING:  WatchFiles detected changes in 'test_agent.py'. Reloading...
-WARNING:  WatchFiles detected changes in 'test_api.py'. Reloading...
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
+INFO:watchfiles.main:3 changes detected
+INFO:watchfiles.main:1 change detected
