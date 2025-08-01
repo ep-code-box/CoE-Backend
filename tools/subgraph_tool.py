@@ -1,6 +1,6 @@
 from typing import Dict, Any, TypedDict
 from langgraph.graph import StateGraph, START, END
-from schemas import ChatState
+from core.schemas import ChatState
 
 # 라우터 프롬프트에 사용될 도구 설명
 subgraph_tool_description = {

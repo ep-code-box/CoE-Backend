@@ -1,7 +1,7 @@
 import requests
 import json
 from typing import Dict, Any, Optional
-from schemas import ChatState
+from core.schemas import ChatState
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -140,7 +140,7 @@ def guide_extraction_node(state: ChatState) -> Dict[str, Any]:
         git_urls = extract_git_urls_from_analysis(analysis_data)
         
         # LLM 클라이언트 가져오기
-        from llm_client import langchain_client
+        from core.llm_client import langchain_client
         
         # 가이드 추출 체인 실행
         chain = GUIDE_EXTRACTION_PROMPT | langchain_client | StrOutputParser()

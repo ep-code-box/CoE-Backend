@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from models import model_registry # ModelRegistry를 가져옵니다.
+from core.models import model_registry # ModelRegistry를 가져옵니다.
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()

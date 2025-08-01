@@ -32,7 +32,7 @@ class ModelRegistry:
         try:
             # 현재 파일 위치를 기준으로 models.json 경로를 찾습니다.
             current_dir = os.path.dirname(os.path.abspath(__file__))
-            models_file_path = os.path.join(current_dir, 'models.json')
+            models_file_path = os.path.join(current_dir, '..', 'config', 'models.json')
             
             with open(models_file_path, 'r', encoding='utf-8') as f:
                 models_data = json.load(f)

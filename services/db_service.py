@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from database import LangFlow, get_db, SessionLocal
+from core.database import LangFlow, get_db, SessionLocal
 from datetime import datetime
 
 class LangFlowService:
