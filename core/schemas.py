@@ -73,6 +73,15 @@ class FlowListResponse(BaseModel):
 class ExecuteFlowRequest(BaseModel):
     flow_name: str
     inputs: Optional[Dict[str, Any]] = None
+    tweaks: Optional[Dict[str, Any]] = None
+    langflow_url: Optional[str] = None
+
+class ExecuteFlowResponse(BaseModel):
+    success: bool
+    session_id: Optional[str] = None
+    outputs: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    execution_time: Optional[float] = None
 
 # 인증 관련 스키마
 class UserRegisterRequest(BaseModel):
