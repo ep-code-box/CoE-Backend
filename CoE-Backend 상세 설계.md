@@ -220,7 +220,7 @@ class WorkflowFlow(Base):
 ```
 
 
-## 4. LangGraph 기반 AI4X 모델 도구 선택
+## 4. LangGraph 기반 SKAX 모델 도구 선택
 
 ### 4.1 동적 도구 레지스트리[^9][^10][^11]
 
@@ -263,13 +263,13 @@ class ToolRegistry:
 ### 4.2 LangGraph 에이전트 구성[^11][^12][^13]
 
 ```python
-# core/graph_builder.py - AI4X 모델 기반 도구 라우팅
+# core/graph_builder.py - SKAX 모델 기반 도구 라우팅
 from langgraph.graph import StateGraph, END
-from langchain_anthropic import ChatAnthropic  # AI4X 모델
+from langchain_anthropic import ChatAnthropic  # SKAX 모델
 
 class CoEAgent:
     def __init__(self):
-        self.llm = ChatAnthropic(model="claude-3-sonnet-20240229")  # AI4X 모델
+        self.llm = ChatAnthropic(model="claude-3-sonnet-20240229")  # SKAX 모델
         self.tool_registry = ToolRegistry()
         self.graph = None
     
@@ -285,7 +285,7 @@ class CoEAgent:
         workflow.add_node("executor", self.tool_execution_node)
         workflow.add_node("summarizer", self.response_generation_node)
         
-        # 조건부 엣지 (AI4X 모델 기반 라우팅)
+        # 조건부 엣지 (SKAX 모델 기반 라우팅)
         workflow.add_conditional_edges(
             "router",
             self.route_based_on_llm_decision,
@@ -314,9 +314,9 @@ class CoEAgent:
         }
     
     async def router_node(self, state: ChatState) -> Dict:
-        """AI4X 모델 기반 라우팅 결정"""
+        """SKAX 모델 기반 라우팅 결정"""
         
-        # AI4X 모델에게 다음 행동 결정 요청
+        # SKAX 모델에게 다음 행동 결정 요청
         system_prompt = """
         당신은 사용자 요청을 분석하여 적절한 도구를 선택하는 라우터입니다.
         
@@ -398,7 +398,7 @@ class CoEAgent:
             "conversation_history": state["messages"][:-1]
         }
         
-        # AI4X 모델로 최종 응답 생성
+        # SKAX 모델로 최종 응답 생성
         system_prompt = """
         사용자의 요청에 대해 도구 실행 결과를 바탕으로 종합적인 답변을 제공하세요.
         
