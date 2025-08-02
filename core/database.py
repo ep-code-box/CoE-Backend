@@ -101,8 +101,8 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     
-    # 관계 설정
-    role_mappings = relationship("UserRoleMapping", back_populates="user", cascade="all, delete-orphan")
+    # 관계 설정 - 임시로 role_mappings 제거하여 문제 해결
+    # role_mappings = relationship("UserRoleMapping", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
 class UserRole(Base):
@@ -125,12 +125,11 @@ class UserRoleMapping(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     role_id = Column(Integer, ForeignKey("user_roles.id"), nullable=False)
     assigned_at = Column(DateTime, default=datetime.utcnow)
-    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_by = Column(Integer, nullable=True)  # ForeignKey 제거하여 순환 참조 방지
     
-    # 관계 설정
-    user = relationship("User", back_populates="role_mappings", foreign_keys=[user_id])
+    # 관계 설정 - back_populates 제거하여 순환 참조 방지
+    user = relationship("User", foreign_keys=[user_id])
     role = relationship("UserRole", back_populates="role_mappings")
-    assigned_by_user = relationship("User", foreign_keys=[assigned_by])
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
