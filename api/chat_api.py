@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from core.schemas import ChatRequest, ChatResponse, OpenAIChatRequest
-from core.llm_client import client
+from core.llm_client import client, get_client_for_model, get_model_info
 from utils.streaming_utils import agent_stream_generator, proxy_stream_generator
 from tools.utils import find_last_user_message
 
@@ -73,8 +73,19 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
         프록시된 LLM 응답
     """
     try:
-        # OpenAI 클라이언트로 요청을 그대로 전달
-        response = client.chat.completions.create(
+        # 모델 정보 확인
+        model_info = get_model_info(req.model)
+        if not model_info:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"지원하지 않는 모델입니다: {req.model}. 지원 모델 목록은 /v1/models 엔드포인트에서 확인하세요."
+            )
+        
+        # 해당 모델의 프로바이더에 맞는 클라이언트 가져오기
+        model_client = get_client_for_model(req.model)
+        
+        # 프로바이더별 클라이언트로 요청을 전달
+        response = model_client.chat.completions.create(
             model=req.model,
             messages=[msg.model_dump() for msg in req.messages],
             stream=req.stream,
@@ -92,6 +103,9 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
             # 일반 JSON 응답 프록시
             return response.model_dump()
 
+    except ValueError as e:
+        # 모델 또는 프로바이더 관련 오류
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM API 호출 오류: {str(e)}")
 

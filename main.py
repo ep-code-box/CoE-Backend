@@ -85,21 +85,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. 보안 헤더 미들웨어
-app.add_middleware(SecurityHeadersMiddleware)
+# 2. 보안 헤더 미들웨어 - 임시 비활성화
+# app.add_middleware(SecurityHeadersMiddleware)
 
 # 3. 요청 로깅 미들웨어 - uvicorn과 중복되므로 완전 비활성화
 # RequestLoggingMiddleware는 uvicorn의 기본 로깅과 중복되므로 사용하지 않음
 # if os.getenv("APP_ENV") == "development":
 #     app.add_middleware(RequestLoggingMiddleware, log_body=True)
 
-# 4. 속도 제한 미들웨어
-rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
-app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
+# 4. 속도 제한 미들웨어 - 임시 비활성화
+# rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+# app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
 
-# 5. 인증 미들웨어 (선택적 활성화)
-enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
-app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
+# 5. 인증 미들웨어 (선택적 활성화) - 임시 비활성화
+# enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
+# app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
 
 # 로깅 설정 - uvicorn과 중복 방지를 위해 기본 설정만 사용
 logging.basicConfig(
