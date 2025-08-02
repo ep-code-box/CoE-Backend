@@ -6,11 +6,13 @@ from .utils import find_last_user_message
 basic_tool_descriptions = [
     {
         "name": "tool1",
-        "description": "텍스트를 대문자로 변환합니다."
+        "description": "텍스트를 대문자로 변환합니다.",
+        "url_path": "/tools/tool1"
     },
     {
         "name": "tool2",
-        "description": "텍스트를 역순으로 변환합니다."
+        "description": "텍스트를 역순으로 변환합니다.",
+        "url_path": "/tools/tool2"
     }
 ]
 

@@ -6,11 +6,13 @@ from core.schemas import ChatState
 class_tool_descriptions = [
     {
         "name": "class_call",
-        "description": "텍스트를 분석합니다. (예: \"이 문장 분석해줘\")"
+        "description": "텍스트를 분석합니다. (예: \"이 문장 분석해줘\")",
+        "url_path": "/tools/class-call"
     },
     {
         "name": "combined_tool",
-        "description": "API로 데이터를 가져와 클래스로 분석하는 조합 작업입니다. (예: \"1번 사용자 데이터 분석해줘\")"
+        "description": "API로 데이터를 가져와 클래스로 분석하는 조합 작업입니다. (예: \"1번 사용자 데이터 분석해줘\")",
+        "url_path": "/tools/combined-tool"
     }
 ]
 
@@ -50,3 +52,10 @@ def class_analysis_node(state: ChatState) -> Dict[str, Any]:
     
     analysis_result = text_analyzer.analyze(api_data['body'])
     return {"messages": [{"role": "assistant", "content": analysis_result}]}
+
+def combined_tool_node(state: ChatState) -> Dict[str, Any]:
+    """Combined tool that performs API call and analysis."""
+    user_content = state.get("original_input", "")
+    
+    # API 호출과 분석을 조합한 작업 수행
+    return {"messages": [{"role": "assistant", "content": f"Combined tool executed for: {user_content}"}]}

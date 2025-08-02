@@ -6,7 +6,8 @@ from langgraph.graph import END
 # 라우터 프롬프트에 사용될 도구 설명
 api_tool_description = {
     "name": "api_call",
-    "description": "외부 API를 호출하여 사용자 정보를 가져옵니다. (예: \"1번 사용자 정보 알려줘\")"
+    "description": "외부 API를 호출하여 사용자 정보를 가져옵니다. (예: \"1번 사용자 정보 알려줘\")",
+    "url_path": "/tools/api-call"
 }
 
 def after_api_call(state: ChatState) -> str:

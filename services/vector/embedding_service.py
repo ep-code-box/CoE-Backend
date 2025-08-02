@@ -1,29 +1,41 @@
 import os
-import requests
 import logging
 from typing import List, Union, Optional
+from langchain_openai import OpenAIEmbeddings
 
 logger = logging.getLogger(__name__)
 
 class EmbeddingService:
-    """임베딩 서비스 클래스"""
+    """OpenAI 임베딩 서비스 클래스"""
     
-    def __init__(self, service_url: Optional[str] = None):
+    def __init__(self, openai_api_key: Optional[str] = None, openai_api_base: Optional[str] = None):
         """
         EmbeddingService 초기화
         
         Args:
-            service_url: 임베딩 서비스 URL
+            openai_api_key: OpenAI API 키
+            openai_api_base: OpenAI API 베이스 URL
         """
-        self.service_url = service_url or os.getenv("EMBEDDING_SERVICE_URL", "http://koEmbeddings:6668")
+        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        self.openai_api_base = openai_api_base or os.getenv("OPENAI_API_BASE")
         
-    def create_embeddings(self, texts: Union[str, List[str]], model: str = "ko-sentence-bert") -> List[List[float]]:
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
+        
+        # OpenAI Embeddings 초기화
+        embedding_kwargs = {"api_key": self.openai_api_key}
+        if self.openai_api_base:
+            embedding_kwargs["base_url"] = self.openai_api_base
+            
+        self.embeddings = OpenAIEmbeddings(**embedding_kwargs)
+        
+    def create_embeddings(self, texts: Union[str, List[str]], model: str = "text-embedding-3-large") -> List[List[float]]:
         """
         텍스트들을 임베딩으로 변환합니다.
         
         Args:
             texts: 임베딩할 텍스트(들)
-            model: 사용할 모델 이름
+            model: 사용할 모델 이름 (OpenAI embedding 모델)
             
         Returns:
             임베딩 벡터 리스트
@@ -35,43 +47,27 @@ class EmbeddingService:
             else:
                 input_texts = texts
             
-            # 임베딩 서비스에 요청
-            response = requests.post(
-                f"{self.service_url}/embed",
-                headers={"Content-Type": "application/json"},
-                json={"inputs": input_texts},
-                timeout=30
-            )
+            # OpenAI 임베딩 생성
+            embeddings = self.embeddings.embed_documents(input_texts)
             
-            if response.status_code != 200:
-                logger.error(f"임베딩 서비스 오류: {response.status_code} - {response.text}")
-                raise Exception(f"임베딩 생성 실패: {response.text}")
-            
-            # 임베딩 결과 파싱
-            embeddings = response.json()
-            
-            if not isinstance(embeddings, list):
-                raise Exception("임베딩 서비스에서 예상치 못한 응답 형식을 받았습니다.")
-            
-            logger.info(f"Successfully created {len(embeddings)} embeddings")
+            logger.info(f"Successfully created {len(embeddings)} embeddings using OpenAI")
             return embeddings
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"임베딩 서비스 연결 오류: {e}")
-            raise Exception(f"임베딩 서비스에 연결할 수 없습니다: {str(e)}")
         except Exception as e:
-            logger.error(f"임베딩 생성 중 오류 발생: {e}")
-            raise
+            logger.error(f"OpenAI 임베딩 생성 중 오류 발생: {e}")
+            raise Exception(f"OpenAI 임베딩 생성 실패: {str(e)}")
     
     def health_check(self) -> bool:
         """
-        임베딩 서비스 상태 확인
+        OpenAI 임베딩 서비스 상태 확인
         
         Returns:
             서비스 정상 여부
         """
         try:
-            response = requests.get(f"{self.service_url}/health", timeout=5)
-            return response.status_code == 200
-        except:
+            # 간단한 테스트 텍스트로 임베딩 생성 시도
+            test_embedding = self.embeddings.embed_query("test")
+            return len(test_embedding) > 0
+        except Exception as e:
+            logger.error(f"OpenAI 임베딩 서비스 상태 확인 실패: {e}")
             return False

@@ -252,6 +252,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         logger.info(f"Request: {request.method} {request.url}")
         logger.info(f"Client: {request.client.host}")
         logger.info(f"User-Agent: {request.headers.get('user-agent', 'Unknown')}")
+        logger.info(f"Content-Type: {request.headers.get('content-type')}")
         
         if self.log_body and request.method in ["POST", "PUT", "PATCH"]:
             try:
