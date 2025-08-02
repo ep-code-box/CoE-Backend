@@ -8,7 +8,8 @@ from langchain_core.output_parsers import StrOutputParser
 # 라우터 프롬프트에 사용될 도구 설명
 guide_extraction_description = {
     "name": "guide_extraction",
-    "description": "Git 레포지토리 분석 결과를 바탕으로 표준개발가이드, 공통코드화, 공통함수 가이드를 추출합니다. (예: \"이 프로젝트의 개발 가이드를 추출해줘\")"
+    "description": "Git 레포지토리 분석 결과를 바탕으로 표준개발가이드, 공통코드화, 공통함수 가이드를 추출합니다. (예: \"이 프로젝트의 개발 가이드를 추출해줘\")",
+    "url_path": "/tools/guide-extraction"
 }
 
 # 가이드 추출을 위한 프롬프트 템플릿

@@ -16,6 +16,7 @@ from api.coding_assistant.code_api import router as coding_assistant_router
 from api.vector.vector_api import router as vector_router
 from api.embeddings_api import router as embeddings_router
 from api.auth_api import router as auth_router
+from api.tools.dynamic_tools_api import router as dynamic_tools_router
 from core.database import init_database
 from core.middleware import (
     AuthenticationMiddleware, RateLimitMiddleware, 
@@ -52,9 +53,10 @@ app.add_middleware(
 # 2. 보안 헤더 미들웨어
 app.add_middleware(SecurityHeadersMiddleware)
 
-# 3. 요청 로깅 미들웨어 (개발 환경에서만)
-if os.getenv("APP_ENV") == "development":
-    app.add_middleware(RequestLoggingMiddleware, log_body=True)
+# 3. 요청 로깅 미들웨어 - uvicorn과 중복되므로 완전 비활성화
+# RequestLoggingMiddleware는 uvicorn의 기본 로깅과 중복되므로 사용하지 않음
+# if os.getenv("APP_ENV") == "development":
+#     app.add_middleware(RequestLoggingMiddleware, log_body=True)
 
 # 4. 속도 제한 미들웨어
 rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
@@ -64,41 +66,28 @@ app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
 enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
 app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO)
+# 로깅 설정 - uvicorn과 중복 방지를 위해 기본 설정만 사용
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # 기존 설정 덮어쓰기
+)
 logger = logging.getLogger(__name__)
 
-# 요청 로깅 미들웨어 (디버깅용)
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url}")
-    logger.info(f"Headers: {dict(request.headers)}")
-    
-    # POST 요청의 경우 본문 로깅 (디버깅용)
-    if request.method == "POST":
-        body = await request.body()
-        logger.info(f"Body: {body}")
-        logger.info(f"Body length: {len(body)}")
-        
-        # 요청 본문을 다시 읽을 수 있도록 설정
-        import io
-        from starlette.requests import Request as StarletteRequest
-        
-        async def receive():
-            return {
-                "type": "http.request", 
-                "body": body,
-                "more_body": False
-            }
-        
-        # 새로운 Request 객체 생성
-        new_request = StarletteRequest(request.scope, receive)
-        response = await call_next(new_request)
-    else:
-        response = await call_next(request)
-    
-    logger.info(f"Response status: {response.status_code}")
-    return response
+# uvicorn 로거 설정 조정 (중복 로그 방지)
+uvicorn_logger = logging.getLogger("uvicorn.access")
+uvicorn_logger.disabled = False  # uvicorn 로그는 유지
+
+# 요청 로깅 미들웨어 (디버깅용) - 임시 비활성화
+# @app.middleware("http")
+# async def log_requests(request: Request, call_next):
+#     logger.info(f"Request: {request.method} {request.url}")
+#     logger.info(f"Headers: {dict(request.headers)}")
+#     
+#     response = await call_next(request)
+#     
+#     logger.info(f"Response status: {response.status_code}")
+#     return response
 
 # 에이전트 정보 설정
 set_agent_info(agent, agent_model_id)
@@ -112,6 +101,7 @@ app.include_router(flows_router)
 app.include_router(coding_assistant_router)
 app.include_router(vector_router)
 app.include_router(embeddings_router)
+app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가
 app.include_router(chat_router)
 
 if __name__ == "__main__":

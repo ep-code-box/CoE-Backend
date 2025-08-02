@@ -41,17 +41,20 @@ class ChromaService:
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY가 설정되지 않았습니다.")
         
-        # 임베딩 서비스 초기화 - 로컬 임베딩 서비스 우선 사용
+        # OpenAI 임베딩 서비스 초기화
         try:
-            self.embedding_service = EmbeddingService()
+            self.embedding_service = EmbeddingService(
+                openai_api_key=self.openai_api_key,
+                openai_api_base=self.openai_api_base
+            )
             if self.embedding_service.health_check():
-                logger.info("Using local embedding service")
-                self.use_local_embeddings = True
+                logger.info("Using OpenAI embedding service")
+                self.use_local_embeddings = True  # OpenAI를 기본으로 사용
             else:
-                logger.warning("Local embedding service not available, falling back to OpenAI")
+                logger.warning("OpenAI embedding service not available")
                 self.use_local_embeddings = False
         except Exception as e:
-            logger.warning(f"Failed to initialize local embedding service: {e}, using OpenAI")
+            logger.warning(f"Failed to initialize OpenAI embedding service: {e}")
             self.use_local_embeddings = False
         
         # OpenAI Embeddings 초기화 (fallback)
@@ -98,9 +101,9 @@ class ChromaService:
             유사한 문서 리스트
         """
         try:
-            # 로컬 임베딩 서비스 사용 시 직접 검색
+            # OpenAI 임베딩 서비스 사용 시 직접 검색
             if self.use_local_embeddings:
-                logger.info("Using local embedding service for search")
+                logger.info("Using OpenAI embedding service for search")
                 
                 # 쿼리 임베딩 생성
                 query_embedding = self.embedding_service.create_embeddings([query])[0]
