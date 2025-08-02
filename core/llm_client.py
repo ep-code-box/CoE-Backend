@@ -1,8 +1,9 @@
 import os
+from typing import Dict, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from core.models import model_registry # ModelRegistry를 가져옵니다.
+from core.models import model_registry, ModelInfo # ModelRegistry를 가져옵니다.
 
 # .env 파일에서 환경 변수 로드
 load_dotenv()
@@ -15,15 +16,52 @@ if not default_model:
 
 # 환경 변수에서 임베딩 관련 설정 가져오기
 EMBEDDING_MODEL_NAME = os.getenv("OPENAI_EMBEDDING_MODEL_NAME", "text-embedding-3-small")
-# EMBEDDING_PROVIDER 환경 변수 및 관련 로직을 제거하여 API 기반 임베딩으로 통일합니다.
 
-# --- 중앙 OpenAI 클라이언트 인스턴스 ---
-# 이 단일 클라이언트는 모든 서비스에서 공유됩니다.
-# API 주소, 키 등 모든 설정이 일관되게 유지되도록 보장합니다.
-client = OpenAI(
-    base_url=os.getenv("OPENAI_API_BASE", "https://guest-api.sktax.chat/v1"),
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+# --- 프로바이더별 클라이언트 인스턴스 ---
+# 각 프로바이더별로 별도의 클라이언트를 생성하여 올바른 API 키와 엔드포인트를 사용합니다.
+_clients: Dict[str, OpenAI] = {}
+
+def _create_client_for_provider(provider: str) -> OpenAI:
+    """프로바이더별 OpenAI 클라이언트를 생성합니다."""
+    if provider == "sktax":
+        return OpenAI(
+            base_url=os.getenv("SKAX_API_BASE", "https://guest-api.sktax.chat/v1"),
+            api_key=os.getenv("SKAX_API_KEY")
+        )
+    elif provider == "openai":
+        return OpenAI(
+            base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
+            api_key=os.getenv("OPENAI_API_KEY")
+        )
+    elif provider == "anthropic":
+        # Anthropic은 OpenAI 호환 API를 제공하지 않으므로 별도 처리가 필요할 수 있습니다.
+        # 현재는 OpenAI 클라이언트로 처리하되, 향후 확장 가능하도록 구조를 유지합니다.
+        return OpenAI(
+            base_url=os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com/v1"),
+            api_key=os.getenv("ANTHROPIC_API_KEY")
+        )
+    else:
+        raise ValueError(f"지원하지 않는 프로바이더입니다: {provider}")
+
+def get_client_for_model(model_id: str) -> OpenAI:
+    """모델 ID에 해당하는 프로바이더의 클라이언트를 반환합니다."""
+    model_info = model_registry.get_model(model_id)
+    if not model_info:
+        raise ValueError(f"지원하지 않는 모델입니다: {model_id}")
+    
+    provider = model_info.provider
+    if provider not in _clients:
+        _clients[provider] = _create_client_for_provider(provider)
+    
+    return _clients[provider]
+
+def get_model_info(model_id: str) -> Optional[ModelInfo]:
+    """모델 ID에 해당하는 모델 정보를 반환합니다."""
+    return model_registry.get_model(model_id)
+
+# --- 기본 클라이언트 (하위 호환성을 위해 유지) ---
+# 기본 모델의 프로바이더에 해당하는 클라이언트를 기본 클라이언트로 설정합니다.
+client = get_client_for_model(default_model.model_id)
 
 # 1) 직접 사용을 위한 클라이언트 (예: router_node)
 # 위에서 생성한 `client` 인스턴스를 그대로 사용합니다.
@@ -32,14 +70,16 @@ client = OpenAI(
 langchain_client = ChatOpenAI(
     model=default_model.model_id, # ModelRegistry에서 가져온 기본 모델 ID를 사용합니다.
     streaming=True,
-    client=client,  # 중앙 클라이언트 인스턴스를 전달
+    client=client,  # 기본 클라이언트 인스턴스를 전달
 )
 
 # 3) LangChain 연동을 위한 OpenAIEmbeddings Client 설정
-# 로컬 임베딩 옵션을 제거하고, 항상 API 기반의 OpenAIEmbeddings를 사용하도록 단순화합니다.
+# OpenAI 임베딩은 항상 OpenAI 프로바이더를 사용합니다.
+openai_client = get_client_for_model("gpt-4o-mini")  # OpenAI 모델을 통해 OpenAI 클라이언트를 가져옵니다.
 embeddings_client = OpenAIEmbeddings(
     model=EMBEDDING_MODEL_NAME,
-    client=client # 중앙 클라이언트 인스턴스를 전달합니다.
+    client=openai_client # OpenAI 클라이언트 인스턴스를 전달합니다.
 )
 
+print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.")
 print(f"✅ Initialized API-based Embedding Model ({EMBEDDING_MODEL_NAME}).")
