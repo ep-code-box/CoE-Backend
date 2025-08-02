@@ -101,8 +101,8 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     
-    # 관계 설정 - 임시로 role_mappings 제거하여 문제 해결
-    # role_mappings = relationship("UserRoleMapping", back_populates="user", cascade="all, delete-orphan")
+    # 관계 설정
+    role_mappings = relationship("UserRoleMapping", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
 class UserRole(Base):
@@ -127,8 +127,8 @@ class UserRoleMapping(Base):
     assigned_at = Column(DateTime, default=datetime.utcnow)
     assigned_by = Column(Integer, nullable=True)  # ForeignKey 제거하여 순환 참조 방지
     
-    # 관계 설정 - back_populates 제거하여 순환 참조 방지
-    user = relationship("User", foreign_keys=[user_id])
+    # 관계 설정
+    user = relationship("User", back_populates="role_mappings")
     role = relationship("UserRole", back_populates="role_mappings")
 
 class RefreshToken(Base):

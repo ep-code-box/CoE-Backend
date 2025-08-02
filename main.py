@@ -101,7 +101,7 @@ app.add_middleware(
 # enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
 # app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
 
-# 로깅 설정 - uvicorn과 중복 방지를 위해 기본 설정만 사용
+# 로깅 설정 - uvicorn과 중복 방지
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -112,6 +112,13 @@ logger = logging.getLogger(__name__)
 # uvicorn 로거 설정 조정 (중복 로그 방지)
 uvicorn_logger = logging.getLogger("uvicorn.access")
 uvicorn_logger.disabled = False  # uvicorn 로그는 유지
+
+# 루트 로거의 핸들러 중복 방지
+root_logger = logging.getLogger()
+if len(root_logger.handlers) > 1:
+    # 중복된 핸들러 제거 (첫 번째만 유지)
+    for handler in root_logger.handlers[1:]:
+        root_logger.removeHandler(handler)
 
 # 요청 로깅 미들웨어 (디버깅용) - 임시 비활성화
 # @app.middleware("http")
