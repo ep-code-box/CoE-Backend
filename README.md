@@ -1,22 +1,35 @@
 # 🤖 CoE-Backend: AI 에이전트 및 API 서버
 
-이 프로젝트는 **CoE(Center of Excellence) for AI** 플랫폼의 핵심 백엔드 서버입니다. **LangGraph**와 **FastAPI**를 기반으로, `CoE-RagPipeline`의 분석 결과를 받아 LLM 추론을 통해 개발 가이드를 생성하는 AI 에이전트 역할을 수행합니다.
+**CoE(Center of Excellence) for AI** 플랫폼의 핵심 백엔드 서버입니다. **LangGraph**와 **FastAPI**를 기반으로 구축된 확장 가능한 AI 에이전트 시스템으로, 다양한 AI 워크플로우를 지원합니다.
 
-또한, **OpenWebUI** 및 **LangFlow**와 완벽하게 호환되는 인터페이스를 제공하여 다양한 AI 워크플로우를 손쉽게 구축하고 테스트할 수 있는 환경을 제공합니다.
+## 🎯 핵심 가치
 
-## ✨ 주요 기능 (Features)
+- **🔧 확장성**: 도구 레지스트리 패턴으로 새로운 기능을 쉽게 추가
+- **🔗 호환성**: OpenWebUI, LangFlow와 완벽 호환
+- **🚀 성능**: 비동기 FastAPI 기반 고성능 API 서버
+- **🛡️ 안정성**: 완전한 모듈화와 체계적인 에러 처리
 
-- **동적 도구 라우팅**: LLM을 사용하여 사용자의 요청에 가장 적합한 도구를 동적으로 선택합니다.
-- **완벽한 모듈화 및 확장성**: 각 도구의 기능, 설명, 그래프 연결(흐름) 로직이 개별 파일로 분리되어 독립적으로 관리됩니다.
-- **자동 도구 등록 (Tool Registry)**: `tools` 디렉터리에 새로운 도구 파일을 추가하는 것만으로 에이전트에 자동으로 통합됩니다.
-- **OpenWebUI 호환**: 표준 OpenAI API 규격(`v1/chat/completions`)을 지원하여 OpenWebUI의 백엔드로 완벽하게 동작합니다.
-- **LangFlow 연동**: LangFlow에서 설계한 워크플로우를 파일로 저장하고 관리할 수 있는 API를 제공합니다.
-- **다양한 도구 통합**: REST API 호출, LCEL 체인, Human-in-the-Loop 등 복잡한 워크플로우를 지원하는 다양한 도구 예시를 포함합니다.
-- **임베딩 모델 지원**: 한국어 특화 임베딩 모델을 포함한 다양한 임베딩 모델을 지원하며, 동적으로 모델을 추가/관리할 수 있습니다.
-- **벡터 데이터베이스 연동**: ChromaDB를 통한 벡터 검색 및 RAG(Retrieval-Augmented Generation) 기능을 제공합니다.
-- **다중 LLM 지원**: OpenAI, Anthropic 등 다양한 LLM 제공업체를 지원하며, `models.json`을 통해 쉽게 관리할 수 있습니다.
-- **비동기 API 서버**: FastAPI 기반으로 높은 성능의 비동기 API 엔드포인트를 제공합니다.
-- **Docker 지원**: Docker를 통해 일관되고 안정적인 배포 환경을 제공합니다.
+## ✨ 주요 기능
+
+### 🤖 AI 에이전트 시스템
+- **동적 도구 라우팅**: LLM이 사용자 요청에 최적화된 도구를 자동 선택
+- **자동 도구 등록**: `tools` 디렉터리에 파일 추가만으로 새 기능 통합
+- **멀티턴 대화**: 컨텍스트를 유지하는 지능형 대화 시스템
+
+### 🔗 플랫폼 호환성
+- **OpenWebUI 완벽 호환**: 표준 OpenAI API 규격 지원
+- **LangFlow 연동**: 워크플로우 저장 및 관리 API 제공
+- **다중 LLM 지원**: OpenAI, Anthropic 등 주요 LLM 제공업체 지원
+
+### 🔍 검색 및 임베딩
+- **벡터 검색**: ChromaDB 기반 고성능 유사도 검색
+- **한국어 특화**: 한국어 최적화 임베딩 모델 지원
+- **RAG 시스템**: 검색 증강 생성으로 정확한 답변 제공
+
+### 👨‍💻 코딩 어시스턴트
+- **10개 언어 지원**: Python, JavaScript, Java 등 주요 언어
+- **코드 분석**: 복잡도, 품질 메트릭 자동 분석
+- **자동 생성**: 코드, 테스트, 문서 자동 생성
 
 ## 🔧 아키텍처: 도구 레지스트리 패턴
 
@@ -110,386 +123,507 @@ CoE-Backend/
         └── template_manager.py # 템플릿 관리 유틸리티
 ```
 
-## 🚀 시작하기
+## 🚀 빠른 시작
 
-### 1. 환경 변수 설정
+### 📋 사전 요구사항
+- Python 3.8+ 또는 Docker
+- OpenAI API 키 (또는 다른 LLM 제공업체 API 키)
 
-`.env.example` 파일을 복사하여 `.env` 파일을 생성하고, LLM API 키 등 필요한 정보를 입력합니다.
+### ⚡ 1분 설치 (Docker 권장)
 
 ```bash
+# 1. 저장소 클론
+git clone <repository-url>
+cd CoE-Backend
+
+# 2. 환경 변수 설정
 cp .env.example .env
-# nano .env 또는 vi .env 명령어로 파일 편집
-```
+# .env 파일에서 API 키 설정
 
-### 2. Docker를 사용하여 실행 (권장)
-
-Docker를 사용하면 가장 쉽고 빠르게 서버를 실행할 수 있습니다.
-
-```bash
-# 1. Docker 이미지 빌드
+# 3. Docker로 실행
 docker build -t coe-backend .
+docker run -d -p 8000:8000 --name coe-backend --env-file .env coe-backend
 
-# 2. Docker 컨테이너 실행
-docker run -d -p 8000:8000 --name backend --env-file .env coe-backend
+# 4. 서비스 확인
+curl http://localhost:8000/health
 ```
 
-### 3. 로컬에서 직접 실행
+### 🐍 로컬 개발 환경
 
 ```bash
-# 1. 가상 환경 생성 및 활성화
+# 가상 환경 설정
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# 2. 의존성 설치
+# 의존성 설치
 pip install -r requirements.txt
 
-# 3. 서버 실행 (Hot-reloading 지원)
+# 개발 서버 실행 (Hot-reload)
 python main.py
 ```
 
-## 🔌 주요 연동 가이드
+### 🔧 환경 변수 설정
 
-### OpenWebUI 연동
-
-이 백엔드는 OpenWebUI와 완벽하게 호환됩니다.
-
-1.  **OpenWebUI 설정** > **연결(Connections)** 로 이동합니다.
-2.  **API 기본 URL(API Base URL)** 필드에 `http://localhost:8000/v1` 을 입력합니다.
-    *   Docker 환경에서는 `CoE-Backend` 컨테이너의 IP나 Docker 호스트 IP(`http://host.docker.internal:8000/v1`)를 사용해야 할 수 있습니다.
-3.  **API 키(API Key)** 는 비워두고 저장합니다.
-4.  OpenWebUI 메인 화면의 모델 선택 메뉴에서 **`CoE Agent v1`** 을 선택하여 에이전트와 대화할 수 있습니다.
-
-### LangFlow 연동
-
-LangFlow에서 설계한 복잡한 워크플로우를 이 백엔드를 통해 저장하고 관리할 수 있습니다.
-
-1.  LangFlow에서 워크플로우를 설계합니다.
-2.  워크플로우를 내보내기(Export)하여 JSON 파일을 얻습니다.
-3.  `POST /flows/save` API를 사용하여 해당 JSON을 서버에 저장할 수 있습니다. 저장된 플로우는 `flows/` 디렉터리에 파일로 관리됩니다.
+`.env` 파일에서 다음 변수들을 설정하세요:
 
 ```bash
-# 예시: my_flow.json을 "My Awesome Flow"라는 이름으로 저장
-curl -X POST http://localhost:8000/flows/save \
--H "Content-Type: application/json" \
--d '{
-  "name": "My Awesome Flow",
-  "description": "This is a sample flow.",
-  "flow_data": { ... } # LangFlow에서 내보낸 JSON 데이터
-}'
+# LLM API 키
+OPENAI_API_KEY=your_openai_api_key
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# 데이터베이스 (선택사항)
+DATABASE_URL=sqlite:///./coe.db
+
+# 벡터 데이터베이스 (선택사항)
+CHROMA_HOST=localhost
+CHROMA_PORT=8000
 ```
 
-## 💬 사용 예시 및 테스트
+## 🔌 플랫폼 연동
 
-### 🤖 AI 에이전트 채팅 테스트
+### 🌐 OpenWebUI 연동
+
+OpenWebUI에서 CoE-Backend를 AI 모델로 사용할 수 있습니다.
+
+**설정 방법:**
+1. OpenWebUI **설정** → **연결** 메뉴로 이동
+2. **API Base URL**: `http://localhost:8000/v1` 입력
+3. **API Key**: 비워두고 저장
+4. 모델 선택에서 **CoE Agent v1** 선택
+
+**Docker 환경에서:**
+```bash
+# OpenWebUI와 함께 실행
+docker network create coe-network
+docker run --network coe-network --name coe-backend coe-backend
+# OpenWebUI에서 http://coe-backend:8000/v1 사용
+```
+
+### 🔄 LangFlow 연동
+
+LangFlow 워크플로우를 저장하고 관리할 수 있습니다.
+
+**워크플로우 저장:**
+```bash
+curl -X POST http://localhost:8000/flows/save \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my_workflow",
+    "description": "사용자 정의 워크플로우",
+    "flow_data": {...}
+  }'
+```
+
+**워크플로우 조회:**
+```bash
+# 전체 목록
+curl http://localhost:8000/flows/list
+
+# 특정 워크플로우
+curl http://localhost:8000/flows/my_workflow
+```
+
+## 💬 API 사용 예시
+
+### 🤖 AI 에이전트 채팅
 
 ```bash
-# OpenAI 호환 채팅 API 테스트
+# 기본 채팅
 curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "coe-agent-v1",
-    "messages": [
-      {
-        "role": "user",
-        "content": "안녕하세요! CoE 에이전트 기능을 테스트해보고 싶습니다."
-      }
-    ]
+    "messages": [{"role": "user", "content": "Python으로 웹 크롤러를 만들어줘"}]
+  }'
+
+# 스트리밍 응답
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "coe-agent-v1",
+    "messages": [{"role": "user", "content": "FastAPI 서버 구조를 설명해줘"}],
+    "stream": true
   }'
 ```
 
-### 👨‍💻 코딩 어시스턴트 테스트
+### 👨‍💻 코딩 어시스턴트
 
 ```bash
-# 지원 언어 목록 조회
-curl -X GET "http://localhost:8000/api/coding-assistant/languages"
+# 지원 언어 확인
+curl http://localhost:8000/api/coding-assistant/languages
 
-# Python 코드 분석
-curl -X POST "http://localhost:8000/api/coding-assistant/analyze" \
+# 코드 분석
+curl -X POST http://localhost:8000/api/coding-assistant/analyze \
   -H "Content-Type: application/json" \
   -d '{
     "language": "python",
-    "code": "def hello_world():\n    print(\"Hello, World!\")"
+    "code": "def fibonacci(n):\n    if n <= 1: return n\n    return fibonacci(n-1) + fibonacci(n-2)"
   }'
 
 # 코드 생성
-curl -X POST "http://localhost:8000/api/coding-assistant/generate" \
+curl -X POST http://localhost:8000/api/coding-assistant/generate \
   -H "Content-Type: application/json" \
   -d '{
     "language": "python",
-    "description": "사용자 인증을 위한 JWT 토큰 생성 함수"
+    "description": "JWT 토큰 검증 미들웨어"
   }'
 ```
 
-### 🔍 벡터 검색 테스트
+### 🔍 벡터 검색
 
 ```bash
-# 벡터 데이터베이스 정보 조회
-curl -X GET "http://localhost:8000/vector/info"
-
 # 문서 추가
-curl -X POST "http://localhost:8000/vector/add" \
+curl -X POST http://localhost:8000/vector/add \
   -H "Content-Type: application/json" \
   -d '{
-    "documents": [
-      {
-        "content": "CoE 플랫폼은 AI 기반 소프트웨어 개발 분석 도구입니다.",
-        "metadata": {"source": "readme", "type": "documentation"}
-      }
-    ]
+    "documents": [{
+      "content": "FastAPI는 Python 웹 프레임워크입니다.",
+      "metadata": {"category": "framework", "language": "python"}
+    }]
   }'
 
-# 벡터 검색
-curl -X POST "http://localhost:8000/vector/search" \
+# 유사도 검색
+curl -X POST http://localhost:8000/vector/search \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "AI 기반 개발 도구",
-    "k": 5
+    "query": "Python 웹 개발",
+    "k": 3
   }'
 ```
 
-### 🔄 LangFlow 워크플로우 테스트
+### 📊 시스템 상태 확인
 
 ```bash
-# 워크플로우 저장
-curl -X POST "http://localhost:8000/flows/save" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "test_workflow",
-    "description": "테스트용 워크플로우",
-    "flow_data": {"nodes": [], "edges": []}
-  }'
+# 헬스체크
+curl http://localhost:8000/health
 
-# 워크플로우 목록 조회
-curl -X GET "http://localhost:8000/flows/list"
+# 사용 가능한 모델 목록
+curl http://localhost:8000/v1/models
+
+# 벡터 DB 정보
+curl http://localhost:8000/vector/info
 ```
 
-## 🛠️ 새로운 도구 추가하기
+## 🛠️ 개발자 가이드
 
-이 아키텍처의 가장 큰 장점은 새로운 도구를 매우 쉽게 추가할 수 있다는 것입니다.
+### 새로운 도구 추가하기
 
-1.  `tools` 디렉터리에 `my_new_tool.py`와 같은 새 파이썬 파일을 만듭니다.
-2.  파일 안에 아래와 같이 **도구 설명**과 **노드 함수**를 규칙에 맞게 정의합니다.
+도구 레지스트리 패턴으로 `main.py` 수정 없이 새 기능을 추가할 수 있습니다.
 
-**예시: `tools/my_new_tool.py`**
+**1단계: 도구 파일 생성**
 ```python
+# tools/my_custom_tool.py
 from typing import Dict, Any
-from schemas import ChatState
+from core.schemas import ChatState
 
-# 1. 라우터가 사용할 도구 설명 (변수명은 _description 또는 _descriptions로 끝나야 함)
-my_new_tool_description = {
-    "name": "my_tool",
-    "description": "이것은 새로 추가된 멋진 도구입니다."
+# 도구 설명 (변수명은 _description으로 끝나야 함)
+my_custom_tool_description = {
+    "name": "my_custom_tool",
+    "description": "사용자 정의 도구입니다."
 }
 
-# 2. 실제 작업을 수행할 노드 함수 (함수명은 _node로 끝나야 함)
-def my_tool_node(state: ChatState) -> Dict[str, Any]:
-    # ... 실제 도구 로직 구현 ...
-    return {"messages": [{"role": "assistant", "content": "새로운 도구 실행 완료!"}]}
-```
-
-3.  **끝입니다!** `main.py`를 수정할 필요 없이 서버를 재시작하면 에이전트가 `my_tool`을 자동으로 인식하고 라우팅에 사용합니다.
-
-### 복잡한 흐름 추가하기
-
-도구가 실행된 후 특정 다른 노드로 연결되어야 한다면, `_edges` 변수를 정의하여 그래프 흐름을 지정할 수 있습니다. 자세한 내용은 `tools/` 디렉터리의 다른 도구 파일들을 참고하세요.
-
-## 📚 API 엔드포인트
-
-### 🤖 AI 에이전트 및 채팅
-- **`POST /v1/chat/completions`**: (핵심) OpenAI 호환 채팅 API
-  - `model: "coe-agent-v1"`: LangGraph 에이전트 실행
-  - `model: "gpt-4o-mini"` 등: 직접 LLM 호출 (프록시)
-  - OpenWebUI, LangFlow와 완벽 호환
-- **`GET /v1/models`**: 사용 가능한 모델 목록 (4개 모델 지원)
-
-### 🔍 벡터 검색 및 임베딩
-- **`POST /v1/embeddings`**: OpenAI 호환 임베딩 API
-  - 한국어 특화 모델(`ko-sentence-bert`) 지원
-  - 다국어 모델(`text-embedding-ada-002`) 지원
-- **`POST /vector/search`**: 벡터 유사도 검색
-  - ChromaDB 기반 고성능 검색
-  - 메타데이터 필터링 지원
-- **`POST /vector/add`**: 벡터 문서 추가
-  - 자동 임베딩 및 저장
-  - 배치 처리 지원
-- **`GET /vector/info`**: 벡터 데이터베이스 정보 조회
-
-### 👨‍💻 코딩 어시스턴트 (10개 언어 지원)
-- **`GET /api/coding-assistant/languages`**: 지원 언어 목록 조회
-- **`POST /api/coding-assistant/analyze`**: 코드 분석 및 메트릭 제공
-- **`POST /api/coding-assistant/template`**: 언어별 코드 템플릿 생성
-- **`POST /api/coding-assistant/generate`**: AI 기반 코드 생성
-- **`POST /api/coding-assistant/review`**: 코드 리뷰 및 개선 제안
-- **`POST /api/coding-assistant/refactor`**: 코드 리팩토링 제안
-- **`POST /api/coding-assistant/test`**: 테스트 코드 자동 생성
-- **`POST /api/coding-assistant/document`**: 코드 문서화 자동 생성
-
-### 🔄 LangFlow 워크플로우 관리
-- **`POST /flows/save`**: 워크플로우 저장 (MariaDB)
-- **`GET /flows/list`**: 저장된 워크플로우 목록
-- **`GET /flows/{flow_name}`**: 특정 워크플로우 조회
-- **`DELETE /flows/{flow_name}`**: 워크플로우 삭제
-
-### 🔐 인증 및 사용자 관리
-- **`POST /auth/register`**: 사용자 등록
-- **`POST /auth/login`**: 로그인 및 토큰 발급
-- **`POST /auth/refresh`**: 토큰 갱신
-- **`POST /auth/logout`**: 로그아웃
-- **`GET /auth/profile`**: 사용자 프로필 조회
-
-### 🏥 시스템 관리
-- **`GET /health`**: 서비스 상태 확인
-- **`GET /test/db`**: 데이터베이스 연결 테스트
-- **`GET /test/vector`**: 벡터 데이터베이스 테스트
-
-## 🔧 고급 설정
-
-### 임베딩 모델 설정
-
-`models.json` 파일에서 임베딩 모델을 관리할 수 있습니다:
-
-```json
-{
-  "embedding_models": [
-    {
-      "id": "ko-sentence-bert",
-      "name": "Korean Sentence BERT",
-      "provider": "local",
-      "endpoint": "http://koEmbeddings:8000/embeddings",
-      "dimensions": 768,
-      "max_tokens": 512,
-      "language": "ko"
-    },
-    {
-      "id": "text-embedding-ada-002",
-      "name": "OpenAI Ada v2",
-      "provider": "openai",
-      "dimensions": 1536,
-      "max_tokens": 8191,
-      "language": "multilingual"
+# 노드 함수 (함수명은 _node로 끝나야 함)
+def my_custom_tool_node(state: ChatState) -> Dict[str, Any]:
+    user_message = state["messages"][-1]["content"]
+    
+    # 도구 로직 구현
+    result = f"처리 결과: {user_message}"
+    
+    return {
+        "messages": [{
+            "role": "assistant", 
+            "content": result
+        }]
     }
-  ]
+```
+
+**2단계: 서버 재시작**
+```bash
+# 개발 모드에서는 자동 재로드
+python main.py
+
+# Docker 환경에서는 컨테이너 재시작
+docker restart coe-backend
+```
+
+### 고급 도구 개발
+
+**복잡한 흐름 제어:**
+```python
+# tools/advanced_tool.py
+
+# 특별한 그래프 흐름이 필요한 경우
+advanced_tool_edges = {
+    "advanced_tool": "human_feedback"  # 다음 노드 지정
 }
+
+def advanced_tool_node(state: ChatState) -> Dict[str, Any]:
+    # 복잡한 로직 구현
+    if needs_human_input:
+        return {"next": "human_feedback"}
+    else:
+        return {"messages": [...]}
 ```
 
-### 벡터 데이터베이스 설정
-
-ChromaDB 연결 설정:
-
+**외부 API 연동:**
 ```python
-# .env 파일
+import httpx
+from typing import Dict, Any
+
+async def api_integration_node(state: ChatState) -> Dict[str, Any]:
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/data")
+        data = response.json()
+    
+    return {"messages": [{"role": "assistant", "content": str(data)}]}
+```
+
+### 프로젝트 구조 이해
+
+```
+tools/
+├── registry.py          # 자동 도구 발견 및 등록
+├── basic_tools.py       # 기본 도구들
+├── api_tool.py         # REST API 호출 도구
+├── langchain_tool.py   # LangChain 연동
+└── your_tool.py        # 새로운 도구
+```
+
+**핵심 컴포넌트:**
+- `core/graph_builder.py`: LangGraph 동적 구성
+- `core/schemas.py`: 데이터 스키마 정의
+- `tools/registry.py`: 도구 자동 등록 시스템
+
+## 📚 API 레퍼런스
+
+### 🤖 AI 에이전트 & 채팅
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/v1/chat/completions` | POST | OpenAI 호환 채팅 API (핵심) |
+| `/v1/models` | GET | 사용 가능한 모델 목록 |
+
+**지원 모델:**
+- `coe-agent-v1`: LangGraph 에이전트 (추천)
+- `gpt-4o-mini`, `gpt-4o`: OpenAI 모델 프록시
+- `claude-3-sonnet`: Anthropic 모델 프록시
+
+### 🔍 벡터 검색 & 임베딩
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/v1/embeddings` | POST | OpenAI 호환 임베딩 API |
+| `/vector/search` | POST | 벡터 유사도 검색 |
+| `/vector/add` | POST | 문서 추가 및 임베딩 |
+| `/vector/info` | GET | 벡터 DB 상태 정보 |
+
+**지원 임베딩 모델:**
+- `ko-sentence-bert`: 한국어 특화 (768차원)
+- `text-embedding-ada-002`: OpenAI 다국어 (1536차원)
+
+### 👨‍💻 코딩 어시스턴트
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/coding-assistant/languages` | GET | 지원 언어 목록 |
+| `/api/coding-assistant/analyze` | POST | 코드 분석 & 메트릭 |
+| `/api/coding-assistant/generate` | POST | AI 코드 생성 |
+| `/api/coding-assistant/review` | POST | 코드 리뷰 |
+| `/api/coding-assistant/refactor` | POST | 리팩토링 제안 |
+| `/api/coding-assistant/test` | POST | 테스트 코드 생성 |
+
+**지원 언어:** Python, JavaScript, Java, C++, Go, Rust, TypeScript, C#, PHP, Ruby
+
+### 🔄 워크플로우 관리
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/flows/save` | POST | LangFlow 워크플로우 저장 |
+| `/flows/list` | GET | 저장된 워크플로우 목록 |
+| `/flows/{name}` | GET | 특정 워크플로우 조회 |
+| `/flows/{name}` | DELETE | 워크플로우 삭제 |
+
+### 🔐 인증 & 사용자
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/auth/register` | POST | 사용자 등록 |
+| `/auth/login` | POST | 로그인 & 토큰 발급 |
+| `/auth/refresh` | POST | 토큰 갱신 |
+| `/auth/profile` | GET | 사용자 프로필 |
+
+### 🏥 시스템 상태
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/health` | GET | 서비스 상태 확인 |
+| `/test/db` | GET | 데이터베이스 연결 테스트 |
+| `/test/vector` | GET | 벡터 DB 연결 테스트 |
+
+## 🔧 배포 및 운영
+
+### Docker Compose 배포
+
+전체 스택을 한 번에 배포하려면:
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  coe-backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CHROMA_HOST=chroma
+    depends_on:
+      - chroma
+      - redis
+    
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  chroma_data:
+```
+
+### 환경별 설정
+
+**개발 환경:**
+```bash
+# .env.development
+DEBUG=true
+LOG_LEVEL=debug
+CHROMA_HOST=localhost
+```
+
+**프로덕션 환경:**
+```bash
+# .env.production
+DEBUG=false
+LOG_LEVEL=info
 CHROMA_HOST=chroma
-CHROMA_PORT=6666
-CHROMA_COLLECTION_NAME=coe_documents
-
-# 고급 설정
-CHROMA_DISTANCE_FUNCTION=cosine  # cosine, l2, ip
-CHROMA_MAX_RESULTS=10
-CHROMA_SIMILARITY_THRESHOLD=0.7
+REDIS_URL=redis://redis:6379
 ```
 
-### RAG 파이프라인 설정
+### 모니터링 및 로깅
 
+**로그 설정:**
 ```python
-# RAG 설정
-RAG_CHUNK_SIZE=1000
-RAG_CHUNK_OVERLAP=200
-RAG_TOP_K=5
-RAG_RERANK_ENABLED=true
-RAG_CONTEXT_WINDOW=4000
+# main.py에서 로깅 설정
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+```
+
+**헬스체크:**
+```bash
+# 서비스 상태 모니터링
+curl http://localhost:8000/health
+
+# 응답 예시
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "services": {
+    "database": "connected",
+    "vector_db": "connected",
+    "llm": "available"
+  }
+}
 ```
 
 ## 🔧 문제 해결
 
-### 일반적인 문제들
+### 일반적인 문제
 
-#### 임베딩 서비스 연결 오류
-
-**문제**: `Connection refused to embedding service`
-
-**해결방법**:
+**1. API 키 오류**
 ```bash
-# 임베딩 서비스 상태 확인
-docker-compose logs koEmbeddings
+# 환경 변수 확인
+echo $OPENAI_API_KEY
 
-# 네트워크 연결 테스트
-docker-compose exec coe-backend curl http://koEmbeddings:6668/health
-
-# 서비스 재시작
-docker-compose restart koEmbeddings coe-backend
+# .env 파일 확인
+cat .env | grep OPENAI_API_KEY
 ```
 
-#### ChromaDB 연결 문제
-
-**문제**: `ChromaDB connection timeout`
-
-**해결방법**:
+**2. 포트 충돌**
 ```bash
-# ChromaDB 상태 확인
-docker-compose logs chroma
+# 포트 사용 확인
+lsof -i :8000
 
-# 데이터 볼륨 확인
-docker volume ls | grep chroma
-
-# ChromaDB 재시작
-docker-compose restart chroma
+# 다른 포트로 실행
+docker run -p 8001:8000 coe-backend
 ```
 
-#### 메모리 부족 오류
-
-**문제**: 대용량 문서 처리 시 메모리 부족
-
-**해결방법**:
+**3. 메모리 부족**
 ```bash
-# Docker 메모리 제한 증가 (docker-compose.yml)
-services:
-  coe-backend:
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-        reservations:
-          memory: 2G
+# Docker 메모리 제한 확인
+docker stats coe-backend
+
+# 메모리 제한 증가
+docker run -m 4g coe-backend
 ```
 
 ### 성능 최적화
 
-#### 임베딩 성능 최적화
-- 배치 크기 조정: `EMBEDDING_BATCH_SIZE=32`
-- 캐싱 활성화: `EMBEDDING_CACHE_ENABLED=true`
-- GPU 사용: CUDA 지원 임베딩 모델 사용
+**벡터 검색 최적화:**
+- 인덱스 크기 조정: `CHROMA_INDEX_SIZE=1000000`
+- 배치 처리: `VECTOR_BATCH_SIZE=100`
+- 캐싱 활성화: `VECTOR_CACHE_TTL=3600`
 
-#### 벡터 검색 최적화
-- 인덱스 최적화: 정기적인 인덱스 재구성
-- 메타데이터 필터링: 불필요한 검색 범위 제한
-- 결과 캐싱: 자주 사용되는 쿼리 결과 캐싱
+**LLM 응답 최적화:**
+- 토큰 제한: `MAX_TOKENS=2000`
+- 온도 조정: `TEMPERATURE=0.7`
+- 스트리밍 활성화: `STREAM=true`
 
 ## 🧪 테스트
 
-### 단위 테스트 실행
-```bash
-# 전체 테스트
-python -m pytest
+### 자동화된 테스트
 
-# 특정 모듈 테스트
-python -m pytest test_embedding.py
-python -m pytest test_vector_db.py
-python -m pytest test_rag.py
+```bash
+# 전체 테스트 실행
+python -m pytest tests/ -v
+
+# 커버리지 포함 테스트
+python -m pytest tests/ --cov=. --cov-report=html
+
+# 특정 테스트만 실행
+python -m pytest tests/test_chat_api.py::test_chat_completion
 ```
 
-### API 테스트
-```bash
-# 임베딩 API 테스트
-curl -X POST http://localhost:8000/v1/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{"input": "안녕하세요", "model": "ko-sentence-bert"}'
+### 통합 테스트
 
-# 벡터 검색 테스트
-curl -X POST http://localhost:8000/vector/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Python 프로그래밍", "top_k": 5}'
+```bash
+# API 엔드포인트 테스트
+python test_integration.py
+
+# 부하 테스트 (선택사항)
+pip install locust
+locust -f tests/load_test.py --host=http://localhost:8000
 ```
 
 ---
 
-자세한 사용법 및 프로젝트 전체 아키텍처는 상위 `CoE/README.md` 파일을 참고해 주세요.
+## 📖 추가 문서
+
+- **[아키텍처 상세 설계](./CoE-Backend%20상세%20설계.md)**: 시스템 아키텍처 및 기술적 세부사항
+- **[LangFlow 연동 가이드](./README_LANGFLOW_INTEGRATION.md)**: LangFlow 워크플로우 연동 방법
+- **[코딩 어시스턴트 가이드](./README_CODING_ASSISTANT.md)**: 코딩 어시스턴트 기능 상세 가이드
+
+## 🤝 기여하기
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 라이선스
+
+이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.

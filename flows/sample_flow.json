@@ -1,0 +1,65 @@
+{
+  "id": "sample-flow-001",
+  "name": "sample_flow",
+  "description": "Simple test flow",
+  "data": {
+    "nodes": [
+      {
+        "id": "TextInput-1",
+        "data": {
+          "type": "TextInput",
+          "node": {
+            "template": {
+              "input_value": {
+                "required": true,
+                "placeholder": "",
+                "show": true,
+                "multiline": false,
+                "value": "",
+                "password": false,
+                "name": "input_value",
+                "display_name": "Text",
+                "type": "str",
+                "list": false,
+                "advanced": false
+              }
+            },
+            "description": "Get text input from the user.",
+            "base_classes": ["Text"],
+            "display_name": "Text Input",
+            "documentation": "",
+            "custom_fields": {},
+            "output_types": ["Text"],
+            "pinned": false,
+            "conditional_paths": [],
+            "frozen": false,
+            "outputs": [
+              {
+                "types": ["Text"],
+                "selected": "Text",
+                "name": "text",
+                "display_name": "Text",
+                "method": "text_response"
+              }
+            ],
+            "field_order": ["input_value"],
+            "beta": false,
+            "error": null
+          }
+        },
+        "id": "TextInput-1",
+        "position": {
+          "x": 100,
+          "y": 100
+        },
+        "type": "genericNode"
+      }
+    ],
+    "edges": [],
+    "viewport": {
+      "x": 0,
+      "y": 0,
+      "zoom": 1
+    }
+  }
+}

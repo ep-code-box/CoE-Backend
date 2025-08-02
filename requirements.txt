@@ -17,3 +17,4 @@ passlib[bcrypt]
 redis
 httpx
 aiohttp
+langflow
