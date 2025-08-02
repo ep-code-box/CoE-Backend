@@ -61,9 +61,36 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
             # 플로우 데이터 로드
             flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
             
-            # 실제 LangFlow 실행 로직 (현재는 시뮬레이션)
-            # 실제 구현에서는 LangFlow 엔진을 사용하여 플로우를 실행해야 합니다
-            result = simulate_langflow_execution(flow_data, state.get("original_input", ""))
+            # 실제 LangFlow 실행 로직
+            from services.langflow.langflow_service import langflow_service
+            import asyncio
+            
+            # 입력 데이터 구성
+            inputs = {
+                "input_value": state.get("original_input", ""),
+                "message": last_message
+            }
+            
+            # 비동기 실행을 동기 컨텍스트에서 처리
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            execution_result = loop.run_until_complete(
+                langflow_service.execute_flow_by_name(flow_name, inputs)
+            )
+            
+            if execution_result.success:
+                result = f"실행 시간: {execution_result.execution_time:.2f}초\n"
+                result += f"세션 ID: {execution_result.session_id}\n"
+                if execution_result.outputs:
+                    result += f"출력 결과:\n{json.dumps(execution_result.outputs, indent=2, ensure_ascii=False)}"
+                else:
+                    result = "플로우가 성공적으로 실행되었습니다."
+            else:
+                result = f"실행 실패: {execution_result.error}"
             
             return {
                 "messages": [{

@@ -6,9 +6,10 @@ import json
 import os
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from core.schemas import SaveFlowRequest, FlowListResponse
+from core.schemas import SaveFlowRequest, FlowListResponse, ExecuteFlowRequest, ExecuteFlowResponse
 from core.database import get_db
 from services.db_service import LangFlowService
+from services.langflow.langflow_service import langflow_service
 
 router = APIRouter()
 
@@ -147,3 +148,68 @@ async def delete_flow(flow_name: str, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete flow: {str(e)}")
+
+
+@router.post("/flows/execute", response_model=ExecuteFlowResponse)
+async def execute_flow(req: ExecuteFlowRequest):
+    """
+    저장된 LangFlow를 실제 LangFlow 엔진으로 실행합니다.
+    
+    Args:
+        req: 실행 요청 (플로우 이름, 입력 데이터, 조정 파라미터 등)
+        
+    Returns:
+        ExecuteFlowResponse: 실행 결과
+    """
+    try:
+        # LangFlow URL이 요청에 포함된 경우 임시로 사용
+        if req.langflow_url:
+            from services.langflow.langflow_service import LangFlowExecutionService
+            temp_service = LangFlowExecutionService(req.langflow_url)
+            result = await temp_service.execute_flow_by_name(
+                flow_name=req.flow_name,
+                inputs=req.inputs,
+                tweaks=req.tweaks
+            )
+        else:
+            # 기본 서비스 사용
+            result = await langflow_service.execute_flow_by_name(
+                flow_name=req.flow_name,
+                inputs=req.inputs,
+                tweaks=req.tweaks
+            )
+        
+        return result
+        
+    except Exception as e:
+        return ExecuteFlowResponse(
+            success=False,
+            error=f"Failed to execute flow: {str(e)}"
+        )
+
+
+@router.get("/flows/health")
+async def check_langflow_health():
+    """
+    LangFlow 서버 상태를 확인합니다.
+    
+    Returns:
+        dict: 서버 상태 정보
+    """
+    try:
+        is_healthy = await langflow_service.check_langflow_health()
+        langflow_url = langflow_service.get_langflow_url()
+        
+        return {
+            "langflow_url": langflow_url,
+            "is_healthy": is_healthy,
+            "status": "connected" if is_healthy else "disconnected"
+        }
+        
+    except Exception as e:
+        return {
+            "langflow_url": langflow_service.get_langflow_url(),
+            "is_healthy": False,
+            "status": "error",
+            "error": str(e)
+        }
