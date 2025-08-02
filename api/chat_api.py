@@ -15,7 +15,15 @@ from tools.utils import find_last_user_message
 _agent = None
 _agent_model_id = None
 
-router = APIRouter()
+router = APIRouter(
+    tags=["🤖 AI Chat"],
+    prefix="/v1",
+    responses={
+        200: {"description": "채팅 응답 성공"},
+        400: {"description": "잘못된 요청"},
+        500: {"description": "서버 오류"}
+    }
+)
 
 
 async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: str):
@@ -101,12 +109,41 @@ def set_agent_info(agent, agent_model_id: str):
     _agent_model_id = agent_model_id
 
 
-@router.post("/v1/chat/completions")
+@router.post(
+    "/chat/completions",
+    summary="AI 채팅 완성",
+    description="""
+    **OpenAI API와 호환되는 채팅 엔드포인트입니다.**
+    
+    요청된 모델 ID에 따라 다음과 같이 동작합니다:
+    - **CoE 에이전트 모델**: LangGraph 기반 AI 에이전트 실행
+    - **일반 LLM 모델**: OpenAI/Anthropic 등 외부 LLM API 프록시
+    
+    ### 🤖 지원 모델
+    - `coe-agent-v1`: CoE LangGraph 에이전트 (추천)
+    - `gpt-4`, `gpt-3.5-turbo`: OpenAI 모델
+    - `claude-3-sonnet`: Anthropic 모델
+    
+    ### 📝 사용 예시
+    ```bash
+    curl -X POST "http://localhost:8000/v1/chat/completions" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "model": "coe-agent-v1",
+        "messages": [
+          {"role": "user", "content": "안녕하세요! CoE 에이전트 기능을 테스트해보고 싶습니다."}
+        ],
+        "stream": false
+      }'
+    ```
+    
+    ### 🔄 스트리밍 지원
+    `"stream": true` 설정으로 실시간 응답을 받을 수 있습니다.
+    """,
+    response_description="채팅 완성 응답 (스트리밍 또는 JSON)"
+)
 async def chat_completions(req: OpenAIChatRequest):
-    """
-    OpenAI API와 호환되는 채팅 엔드포인트입니다.
-    요청된 모델 ID에 따라 CoE 에이전트를 실행하거나, 일반 LLM 호출을 프록시합니다.
-    """
+    """OpenAI API와 호환되는 채팅 엔드포인트 - CoE 에이전트 또는 외부 LLM 호출"""
     print(f"DEBUG: Received request: {req}")
     print(f"DEBUG: Agent model ID: {_agent_model_id}")
     
