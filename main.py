@@ -11,7 +11,7 @@ from api.chat_api import router as chat_router, set_agent_info
 from api.flows_api import router as flows_router
 from api.models_api import router as models_router
 from api.health_api import router as health_router
-from api.test_api import router as test_router
+
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.vector.vector_api import router as vector_router
 from api.embeddings_api import router as embeddings_router
@@ -129,7 +129,7 @@ set_agent_info(agent, agent_model_id)
 
 # 라우터들 등록
 app.include_router(health_router)
-app.include_router(test_router)
+
 app.include_router(auth_router)
 app.include_router(models_router)
 app.include_router(flows_router)

@@ -118,8 +118,13 @@ async def register_user(
         db.add(role_mapping)
         db.commit()
     
-    # 사용자 정보 반환
-    roles = [mapping.role.name for mapping in db_user.role_mappings]
+    # 사용자 정보 반환 - role_mappings 관계가 비활성화되어 있으므로 직접 쿼리
+    roles = []
+    role_mappings = db.query(UserRoleMapping).filter(UserRoleMapping.user_id == db_user.id).all()
+    for mapping in role_mappings:
+        role = db.query(UserRole).filter(UserRole.id == mapping.role_id).first()
+        if role:
+            roles.append(role.name)
     
     return UserResponse(
         id=db_user.id,

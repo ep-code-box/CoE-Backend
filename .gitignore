@@ -35,3 +35,7 @@ venv.bak/
 
 # Vector-store data
 db/
+
+server.log
+.env.local
+.env.docker
