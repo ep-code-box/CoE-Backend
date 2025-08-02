@@ -35,9 +35,44 @@ agent, tool_descriptions, agent_model_id = build_agent_graph()
 
 # FastAPI 앱 생성 및 설정
 app = FastAPI(
-    title="CoE Backend API",
-    description="CoE LangGraph Agent and API Server",
-    version="1.0.0"
+    title="🤖 CoE Backend API",
+    description="""
+    ## CoE(Center of Excellence) for AI - Backend API Server
+    
+    이 API는 **LangGraph 기반 AI 에이전트**와 **다양한 개발 도구**를 제공하는 백엔드 서버입니다.
+    
+    ### 🚀 주요 기능
+    - **AI 에이전트 채팅**: OpenAI 호환 채팅 API (`/v1/chat/completions`)
+    - **코딩 어시스턴트**: 코드 생성, 분석, 리팩토링, 리뷰 (`/api/coding-assistant/`)
+    - **벡터 검색**: ChromaDB 기반 벡터 검색 및 RAG (`/vector/`)
+    - **사용자 인증**: JWT 기반 인증 시스템 (`/auth/`)
+    - **LangFlow 연동**: 워크플로우 관리 (`/flows/`)
+    - **동적 도구**: 자동 도구 등록 및 관리 (`/tools/`)
+    
+    ### 📚 사용 가이드
+    1. **인증**: `/auth/register` 또는 `/auth/login`으로 계정 생성/로그인
+    2. **AI 채팅**: `/v1/chat/completions`로 AI 에이전트와 대화
+    3. **코딩 지원**: `/api/coding-assistant/`로 코드 관련 작업 수행
+    4. **벡터 검색**: `/vector/search`로 문서 검색
+    
+    ### 🔗 연동 서비스
+    - **OpenWebUI**: `http://localhost:8000/v1` 설정으로 연동 가능
+    - **CoE-RagPipeline**: `http://localhost:8001` (Git 분석 서비스)
+    """,
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": 2,
+        "defaultModelExpandDepth": 2,
+        "displayRequestDuration": True,
+        "docExpansion": "list",
+        "filter": True,
+        "showExtensions": True,
+        "showCommonExtensions": True,
+        "tryItOutEnabled": True
+    }
 )
 
 # 미들웨어 추가 (순서 중요: 나중에 추가된 것이 먼저 실행됨)
