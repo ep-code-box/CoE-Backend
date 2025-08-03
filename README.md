@@ -164,19 +164,123 @@ python main.py
 
 ### 🔧 환경 변수 설정
 
-`.env` 파일에서 다음 변수들을 설정하세요:
+CoE-Backend는 **통합 .env 파일**로 local과 docker 환경을 모두 지원합니다.
+
+#### 📋 환경 설정 파일
 
 ```bash
-# LLM API 키
-OPENAI_API_KEY=your_openai_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
+# 환경 설정 파일 생성
+cp .env.example .env
+# 또는 로컬 개발용
+cp .env.example .env.local
+```
 
-# 데이터베이스 (선택사항)
-DATABASE_URL=sqlite:///./coe.db
+#### 🔑 필수 설정 항목
 
-# 벡터 데이터베이스 (선택사항)
+```bash
+# SKAX API 설정 (메인 LLM용)
+SKAX_API_KEY=your_skax_api_key_here
+
+# OpenAI API 설정 (임베딩용)
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+#### 📊 환경별 설정 차이
+
+| 설정 항목 | 로컬 환경 (.env.local) | Docker 환경 (오버라이드) |
+|-----------|----------------------|-------------------------|
+| **데이터베이스** |
+| DB_HOST | localhost | mariadb |
+| DB_PORT | 6667 | 3306 |
+| **ChromaDB** |
+| CHROMA_HOST | localhost | chroma |
+| CHROMA_PORT | 6666 | 8000 |
+| **Redis** |
+| REDIS_HOST | localhost | redis |
+| REDIS_PORT | 6669 | 6379 |
+
+#### 🔧 완전한 .env 파일 예시
+
+```bash
+# ===================================================================
+# CoE-Backend 통합 환경 설정 파일
+# ===================================================================
+
+# === API 키 설정 ===
+SKAX_API_BASE=https://guest-api.sktax.chat/v1
+SKAX_API_KEY=[YOUR_SKAX_API_KEY]
+SKAX_MODEL_NAME=ax4
+
+OPENAI_API_KEY=[YOUR_OPENAI_API_KEY]
+OPENAI_EMBEDDING_MODEL_NAME=text-embedding-3-large
+
+# === 데이터베이스 설정 ===
+# 로컬: localhost:6667, Docker: mariadb:3306
+DB_HOST=localhost
+DB_PORT=6667
+DB_USER=coe_user
+DB_PASSWORD=coe_password
+DB_NAME=coe_db
+
+# === ChromaDB 설정 ===
+# 로컬: localhost:6666, Docker: chroma:8000
 CHROMA_HOST=localhost
-CHROMA_PORT=8000
+CHROMA_PORT=6666
+CHROMA_COLLECTION_NAME=coe_documents
+
+# === Redis 설정 ===
+# 로컬: localhost:6669, Docker: redis:6379
+REDIS_HOST=localhost
+REDIS_PORT=6669
+REDIS_PASSWORD=coe_redis_password
+REDIS_AUTH_DB=1
+
+# === JWT 인증 설정 ===
+JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=7
+
+# === 애플리케이션 설정 ===
+APP_ENV=development
+DEBUG=true
+LOG_LEVEL=DEBUG
+RELOAD=true
+```
+
+#### 🚀 로컬 개발 환경 설정
+
+##### run.sh 스크립트 활용 (권장)
+
+```bash
+# 1. 인프라 서비스만 Docker로 실행
+docker-compose -f ../docker-compose.local.yml up -d
+
+# 2. run.sh 스크립트로 실행 (.venv 자동 관리)
+./run.sh
+```
+
+`run.sh` 스크립트는 다음을 자동으로 수행합니다:
+- `.venv` 가상환경 자동 생성/활성화
+- `requirements.txt` 의존성 자동 설치
+- `.env.local` 환경변수 자동 로드
+- `python main.py` 서버 실행
+
+##### 수동 실행 방식
+
+```bash
+# 가상 환경 설정
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 의존성 설치
+pip install -r requirements.txt
+
+# 환경 변수 설정
+cp .env.example .env.local
+# .env.local 파일에서 API 키 설정
+
+# 개발 서버 실행 (Hot-reload)
+python main.py
 ```
 
 ## 🔌 플랫폼 연동
