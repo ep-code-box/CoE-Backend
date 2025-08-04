@@ -1,25 +1,25 @@
 #!/bin/bash
 
 # CoE-Backend 실행 스크립트
-# .venv 가상환경을 활성화하고 .env.local 설정으로 서버를 실행합니다.
+# .venv 가상환경을 활성화하고 .env 설정으로 서버를 실행합니다.
 
 set -e  # 에러 발생 시 스크립트 중단
 
 PROJECT_DIR="/Users/lastep/Documents/Code/CoE/CoE-Backend"
 VENV_DIR="$PROJECT_DIR/.venv"
-ENV_FILE="$PROJECT_DIR/.env.local"
+ENV_FILE="$PROJECT_DIR/.env"
 
 echo "🚀 CoE-Backend 서버 시작 중..."
 
 # 프로젝트 디렉토리로 이동
 cd "$PROJECT_DIR"
 
-# .env.local 파일 존재 확인
+# .env 파일 존재 확인
 if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ .env.local 파일이 존재하지 않습니다."
-    echo "📝 .env.example 파일을 복사하여 .env.local 파일을 생성하세요:"
-    echo "   cp .env.example .env.local"
-    echo "   nano .env.local  # 또는 원하는 에디터로 편집"
+    echo "❌ .env 파일이 존재하지 않습니다."
+    echo "📝 .env.example 파일을 복사하여 .env 파일을 생성하세요:"
+    echo "   cp .env.example .env"
+    echo "   nano .env  # 또는 원하는 에디터로 편집"
     echo ""
     echo "🔧 필수 설정 항목:"
     echo "   - SKAX_API_KEY: ax4 모델 사용을 위한 API 키"
@@ -44,8 +44,8 @@ echo "📚 의존성 설치/업데이트 중..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# .env.local 파일 로드 및 서버 실행
-echo "🌍 환경변수 로드: .env.local"
+# .env 파일 로드 및 서버 실행
+echo "🌍 환경변수 로드: .env"
 echo "🎯 서버 실행 중... (http://localhost:8000)"
 echo "⏹️  서버 중지: Ctrl+C"
 echo ""
