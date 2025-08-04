@@ -38,6 +38,8 @@ source "$VENV_DIR/bin/activate"
 
 # 의존성 설치/업데이트
 echo "📚 의존성 설치/업데이트 중..."
+# macOS에서 chroma-hnswlib 컴파일 오류 방지
+# export HNSWLIB_NO_NATIVE=1
 pip install --upgrade pip
 pip install -r requirements.txt
 
