@@ -19,7 +19,7 @@ class HealthResponse(BaseModel):
     service: str = "CoE-Backend"
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "status": "healthy",
                 "timestamp": "2025-08-03T10:30:00.000Z",

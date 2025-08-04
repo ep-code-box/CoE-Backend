@@ -39,3 +39,5 @@ db/
 server.log
 .env.local
 .env.docker
+
+.pytest_cache
