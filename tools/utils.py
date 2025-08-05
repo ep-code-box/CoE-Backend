@@ -1,4 +1,22 @@
 import re
+import httpx
+
+async def is_git_url_reachable(url: str) -> bool:
+    """
+    Checks if a given URL is reachable via an HTTP HEAD request.
+    
+    Args:
+        url: The URL to check.
+        
+    Returns:
+        True if the URL is reachable and returns a 2xx status code, False otherwise.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.head(url, timeout=5)
+            return 200 <= response.status_code < 300
+    except httpx.RequestError:
+        return False
 
 def find_last_user_message(messages: list, role: str = "user") -> str | None:
     """
