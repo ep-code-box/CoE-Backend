@@ -87,9 +87,9 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(data: Dict[str, Any]) -> str:
+def create_refresh_token(user_id: int) -> str:
     """리프레시 토큰 생성"""
-    to_encode = data.copy()
+    to_encode = {"user_id": user_id}
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -152,6 +152,17 @@ def get_user_permissions(db: Session, user_id: int) -> List[str]:
         permissions.update(role_permissions)
     
     return list(permissions)
+
+def get_current_user(token: str, db: Session) -> User:
+    """현재 사용자 조회"""
+    payload = verify_token(token)
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise AuthenticationError("Invalid authentication credentials")
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        raise AuthenticationError("Invalid authentication credentials")
+    return user
 
 def check_permission(user_permissions: List[str], required_permission: str) -> bool:
     """권한 확인"""
@@ -231,6 +242,20 @@ def revoke_refresh_token(db: Session, refresh_token: str) -> bool:
         return False
     except Exception:
         return False
+
+def revoke_token(token: str) -> bool:
+    """액세스 토큰을 블랙리스트에 추가하여 무효화"""
+    try:
+        payload = verify_token(token)
+        expires_at = datetime.fromtimestamp(payload["exp"])
+        return blacklist_token(token, expires_at)
+    except Exception as e:
+        print(f"토큰 무효화 실패: {e}")
+        return False
+
+def is_token_revoked(token: str) -> bool:
+    """토큰이 무효화되었는지 확인"""
+    return is_token_blacklisted(token)
 
 def blacklist_token(token: str, expires_at: datetime) -> bool:
     """토큰 블랙리스트에 추가 (Redis 사용)"""

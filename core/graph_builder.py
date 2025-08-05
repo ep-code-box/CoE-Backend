@@ -8,6 +8,7 @@ from core.schemas import ChatState
 from tools.registry import load_all_tools
 from routers.router import router_node
 from core.models import model_registry
+from core.tool_wrapper import wrap_all_tools
 
 
 def build_agent_graph():
@@ -20,6 +21,9 @@ def build_agent_graph():
     """
     # 1) 도구 레지스트리를 통해 모든 노드, 설명, 엣지를 동적으로 로드
     all_nodes, all_tool_descriptions, all_special_edges = load_all_tools()
+    
+    # 2) 모든 도구 노드에 실행 로깅 래퍼 적용
+    all_nodes = wrap_all_tools(all_nodes)
 
     # 'end' 도구에 대한 설명 추가
     all_tool_descriptions.append({
@@ -27,7 +31,7 @@ def build_agent_graph():
         "description": "사용자가 대화를 끝내고 싶어할 때 사용합니다."
     })
 
-    # 2) 라우터가 사용할 유효한 도구 이름 목록 및 OpenWebUI 연동을 위한 에이전트 모델 정의
+    # 3) 라우터가 사용할 유효한 도구 이름 목록 및 OpenWebUI 연동을 위한 에이전트 모델 정의
     VALID_TOOL_NAMES = [tool['name'] for tool in all_tool_descriptions]
     AGENT_MODEL_ID = "coe-agent-v1"  # OpenWebUI에서 사용할 모델 ID
 
@@ -39,7 +43,7 @@ def build_agent_graph():
         description="CoE LangGraph Agent for development guide extraction"
     )
 
-    # 3) 그래프 구성 및 컴파일 (모든 노드와 엣지 추가)
+    # 4) 그래프 구성 및 컴파일 (모든 노드와 엣지 추가)
     graph = StateGraph(ChatState)
 
     # 라우터 노드 추가 (유효한 도구 이름 목록을 전달)

@@ -162,7 +162,7 @@ async def login_user(
     )
     
     refresh_token = create_refresh_token(
-        data={"sub": str(user.id), "username": user.username}
+        user_id=user.id
     )
     
     # 리프레시 토큰 저장

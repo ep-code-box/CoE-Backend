@@ -109,6 +109,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 도구 추적을 위한 전용 로거 설정
+tool_logger = logging.getLogger("tool_tracker")
+tool_handler = logging.StreamHandler()
+tool_handler.setFormatter(logging.Formatter('%(asctime)s - 🔧 TOOL_TRACKER - %(levelname)s - %(message)s'))
+tool_logger.addHandler(tool_handler)
+tool_logger.setLevel(logging.INFO)
+tool_logger.propagate = False  # 중복 로그 방지
+
 # uvicorn 로거 설정 조정 (중복 로그 방지)
 uvicorn_logger = logging.getLogger("uvicorn.access")
 uvicorn_logger.disabled = False  # uvicorn 로그는 유지

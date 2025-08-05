@@ -5,18 +5,19 @@ from core.schemas import ChatState
 from core.database import SessionLocal
 from services.db_service import LangFlowService
 
-# LangFlow 실행 도구 설명
-langflow_execute_description = {
+# LangFlow 실행 도구 설명 (registry.py에서 수집되지 않도록 _description으로 끝나지 않게 명명)
+langflow_execute_config = {
     "name": "execute_langflow",
     "description": "저장된 LangFlow JSON을 실행합니다. 플로우 이름을 지정하여 실행할 수 있습니다."
 }
 
-langflow_list_description = {
+langflow_list_config = {
     "name": "list_langflows", 
     "description": "저장된 모든 LangFlow 목록을 조회합니다."
 }
 
-langflow_descriptions = [langflow_execute_description, langflow_list_description]
+# registry.py에서 수집할 실제 설명 (중복 방지)
+langflow_descriptions = [langflow_execute_config, langflow_list_config]
 
 def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
     """저장된 LangFlow JSON을 실행하는 노드"""

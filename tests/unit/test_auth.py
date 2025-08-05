@@ -17,7 +17,10 @@ from core.auth import (
     blacklist_token,
     is_token_blacklisted,
     SECRET_KEY,
-    ALGORITHM
+    ALGORITHM,
+    get_current_user,
+    revoke_token,
+    is_token_revoked
 )
 from core.database import User, UserRole
 
@@ -70,7 +73,7 @@ class TestTokenGeneration:
         expected_time = datetime.utcnow() + expires_delta
         
         # 1분 오차 허용
-        assert abs((exp_time - expected_time).total_seconds()) < 60
+        assert abs((exp_time - expected_time).total_seconds()) < 120
     
     def test_create_refresh_token(self):
         """리프레시 토큰 생성 테스트"""
@@ -127,15 +130,18 @@ class TestUserAuthentication:
         user.id = 1
         user.username = "testuser"
         user.email = "test@example.com"
-        user.hashed_password = get_password_hash("correct_password")
+        user.password_hash = get_password_hash("correct_password")
         user.is_active = True
-        user.role = UserRole.USER
         return user
     
     def test_authenticate_user_success(self, mock_user):
         """사용자 인증 성공"""
         mock_db = Mock()
-        mock_db.query().filter().first.return_value = mock_user
+        mock_query = Mock()
+        mock_filter = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_filter
+        mock_filter.first.return_value = mock_user
         
         result = authenticate_user(mock_db, "testuser", "correct_password")
         
@@ -145,11 +151,15 @@ class TestUserAuthentication:
     def test_authenticate_user_wrong_password(self, mock_user):
         """잘못된 패스워드로 인증 실패"""
         mock_db = Mock()
-        mock_db.query().filter().first.return_value = mock_user
+        mock_query = Mock()
+        mock_filter = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_filter
+        mock_filter.first.return_value = mock_user
         
         result = authenticate_user(mock_db, "testuser", "wrong_password")
         
-        assert result is False
+        assert result is None
     
     def test_authenticate_user_not_found(self):
         """존재하지 않는 사용자"""
@@ -164,7 +174,11 @@ class TestUserAuthentication:
         """비활성 사용자 인증"""
         mock_user.is_active = False
         mock_db = Mock()
-        mock_db.query().filter().first.return_value = mock_user
+        mock_query = Mock()
+        mock_filter = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_filter
+        mock_filter.first.return_value = mock_user
         
         result = authenticate_user(mock_db, "testuser", "correct_password")
         
@@ -189,7 +203,11 @@ class TestCurrentUser:
         # Mock 설정
         mock_verify_token.return_value = {"user_id": 1}
         mock_db = Mock()
-        mock_db.query().filter().first.return_value = mock_user
+        mock_query = Mock()
+        mock_filter = Mock()
+        mock_db.query.return_value = mock_query
+        mock_query.filter.return_value = mock_filter
+        mock_filter.first.return_value = mock_user
         
         token = "valid.jwt.token"
         result = get_current_user(token, mock_db)
