@@ -5,6 +5,7 @@
 
 import logging
 import time
+import inspect # New import
 from typing import Callable, Dict, Any
 from functools import wraps
 from core.schemas import ChatState
@@ -25,7 +26,7 @@ def tool_execution_wrapper(tool_name: str, tool_func: Callable) -> Callable:
         래핑된 도구 함수
     """
     @wraps(tool_func)
-    def wrapper(state: ChatState) -> Dict[str, Any]:
+    async def wrapper(state: ChatState) -> Dict[str, Any]: # Changed to async def
         start_time = time.time()
         
         # 도구 실행 시작 로그 (전용 로거 사용)
@@ -41,7 +42,10 @@ def tool_execution_wrapper(tool_name: str, tool_func: Callable) -> Callable:
         
         try:
             # 실제 도구 실행
-            result = tool_func(state)
+            if inspect.iscoroutinefunction(tool_func):
+                result = await tool_func(state) # Await if it's an async function
+            else:
+                result = tool_func(state)
             
             # 실행 시간 계산
             execution_time = time.time() - start_time

@@ -5,12 +5,12 @@
 import time
 import uuid
 import logging
-import re # re 모듈 추가
-import httpx # httpx 모듈 추가
+import time
+import uuid
+import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import Optional # Optional 타입 추가
 
 from core.schemas import ChatRequest, ChatResponse, OpenAIChatRequest
 from core.llm_client import client, get_client_for_model, get_model_info
@@ -35,43 +35,6 @@ router = APIRouter(
     }
 )
 
-def extract_git_url(text: str) -> Optional[str]:
-    """텍스트에서 Git URL을 추출합니다."""
-    # 간단한 Git URL 패턴 매칭 (더 정교한 패턴이 필요할 수 있음)
-    match = re.search(r'https://github\.com/[\w\-\.#/]+', text)
-    if match:
-        return match.group(0)
-    return None
-
-async def trigger_rag_analysis(git_url: str) -> Optional[str]:
-    """CoE-RagPipeline에 Git 레포지토리 분석을 요청합니다."""
-    rag_pipeline_url = "http://127.0.0.1:8001" # CoE-RagPipeline URL
-    analyze_url = f"{rag_pipeline_url}/api/v1/analyze"
-    
-    try:
-        async with httpx.AsyncClient() as client:
-            payload = {
-                "repositories": [
-                    {
-                        "url": git_url,
-                        "branch": "master"
-                    }
-                ],
-                "include_ast": True,
-                "include_tech_spec": True,
-                "include_correlation": True
-            }
-            response = await client.post(analyze_url, json=payload, timeout=300) # 5분 타임아웃
-            response.raise_for_status() # HTTP 오류 발생 시 예외 발생
-            
-            result = response.json()
-            return result.get("analysis_id")
-    except httpx.RequestError as e:
-        logger.error(f"CoE-RagPipeline 분석 요청 오류: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"CoE-RagPipeline 분석 중 예외 발생: {e}")
-        return None
 
 async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: str, 
                               request: Request, db: Session):
@@ -112,45 +75,15 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         sanitized_messages.append(msg_dump)
 
     # 사용자 메시지 저장
-    user_message_content = find_last_user_message(sanitized_messages)
-    if user_message_content is not None:
+    user_message = find_last_user_message(sanitized_messages)
+    if user_message is not None:
         chat_service.save_chat_message(
             session_id=session['session_id'],
             role="user",
-            content=user_message_content,
+            content=user_message,
             turn_number=session['conversation_turns'] + 1
         )
     
-    # Git URL 감지 및 RAG 분석 트리거
-    git_url = extract_git_url(user_message_content)
-    if git_url:
-        logger.info(f"Git URL 감지됨: {git_url}. CoE-RagPipeline 분석 요청.")
-        analysis_id = await trigger_rag_analysis(git_url)
-        
-        if analysis_id:
-            response_content = (
-                f"Git 레포지토리 분석을 시작합니다: {git_url}\n"
-                f"분석 ID: `{analysis_id}`\n"
-                f"분석이 완료되면 이 ID를 사용하여 가이드를 추출할 수 있습니다. "
-                f"예시: `analysis_id {analysis_id} 로 개발 가이드를 추출해줘`"
-            )
-        else:
-            response_content = (
-                f"Git 레포지토리 분석 요청에 실패했습니다: {git_url}\n"
-                f"CoE-RagPipeline 서버가 실행 중인지 확인해주세요."
-            )
-        
-        # 사용자에게 분석 시작 메시지 즉시 반환
-        return {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": req.model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": response_content}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "x_session_id": session['session_id']
-        }
-
     # 에이전트 상태 준비
     state = {"messages": sanitized_messages}
     
