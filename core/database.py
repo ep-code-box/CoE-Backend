@@ -331,27 +331,12 @@ class DevelopmentStandard(Base):
     # 관계 설정
     analysis_request = relationship("AnalysisRequest", back_populates="development_standards")
 
-# 사용자 세션 테이블
-class UserSession(Base):
-    __tablename__ = "user_sessions"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String(100), unique=True, nullable=False)
-    user_agent = Column(Text)
-    ip_address = Column(String(45))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    is_active = Column(Boolean, default=True)
-    
-    # 관계 설정
-    api_logs = relationship("APILog", back_populates="user_session")
 
-# API 호출 로그 테이블
 class APILog(Base):
     __tablename__ = "api_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String(100), ForeignKey("user_sessions.session_id"))
+    session_id = Column(String(100))
     endpoint = Column(String(255), nullable=False)
     method = Column(Enum(HTTPMethod), nullable=False)
     request_data = Column(JSON)
@@ -360,8 +345,39 @@ class APILog(Base):
     error_message = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # 관계 설정
-    user_session = relationship("UserSession", back_populates="api_logs")
+    # 도구 관련 필드 추가
+    selected_tool = Column(String(100), nullable=True)  # 선택된 도구명
+    tool_execution_time_ms = Column(Integer, nullable=True)  # 도구 실행 시간
+    tool_success = Column(Boolean, nullable=True)  # 도구 실행 성공 여부
+    tool_error_message = Column(Text, nullable=True)  # 도구 실행 오류 메시지
+
+# 채팅 메시지 히스토리 테이블
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(100), nullable=False)
+    role = Column(String(50), nullable=False)  # user, assistant, system
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    turn_number = Column(Integer, nullable=False)
+    
+    # 도구 관련 메타데이터
+    selected_tool = Column(String(100), nullable=True)  # 이 메시지와 관련된 선택된 도구
+    tool_execution_time_ms = Column(Integer, nullable=True)  # 도구 실행 시간
+    tool_success = Column(Boolean, nullable=True)  # 도구 실행 성공 여부
+    tool_metadata = Column(JSON, nullable=True)  # 도구 실행 관련 추가 메타데이터
+
+# 대화 요약 테이블
+class ConversationSummary(Base):
+    __tablename__ = "conversation_summaries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(100), nullable=False)
+    summary_content = Column(Text, nullable=False)
+    total_turns = Column(Integer, default=0)
+    tools_used = Column(JSON, nullable=True)  # 사용된 도구들의 목록과 통계
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # 백워드 호환성을 위한 RAG 분석 결과 테이블 (CoE-RagPipeline과 호환)
 class RagAnalysisResult(Base):

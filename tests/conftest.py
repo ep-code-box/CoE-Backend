@@ -5,6 +5,7 @@ import os
 import sys
 import pytest
 import asyncio
+from fastapi import FastAPI
 from typing import AsyncGenerator, Generator
 from unittest.mock import Mock, AsyncMock
 from fastapi.testclient import TestClient
@@ -15,27 +16,48 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 필요한 모델 import
 from core.database import User
+from core.auth import get_current_user
 
 # 테스트 환경에서 langflow 관련 import 에러 방지
 os.environ["SKIP_LANGFLOW_INIT"] = "true"
 
-try:
-    from main import app
-    from core.database import get_db
-    from core.auth import get_current_user
-except ImportError as e:
-    # Import 에러 시 테스트용 앱 생성
-    from fastapi import FastAPI
-    from api.health_api import router as health_router
-    
-    app = FastAPI()
-    app.include_router(health_router)  # health 엔드포인트 추가
-    
-    def get_db():
-        return Mock()
-    
-    def get_current_user():
-        return Mock()
+from api.chat_api import router as chat_router, set_agent_info
+from api.health_api import router as health_router
+from services.chat_service import ChatService, get_chat_service
+from core.llm_client import get_model_info
+
+# Mock get_db 함수 (더 이상 사용되지 않지만, 기존 코드와의 호환성을 위해 유지)
+def get_db_mock():
+    return Mock()
+
+# Mock get_current_user 함수
+def get_current_user_mock():
+    user = Mock(spec=User)
+    user.id = 1
+    user.username = "testuser"
+    user.email = "test@example.com"
+    user.is_active = True
+    return user
+
+# Mock ChatService 인스턴스
+@pytest.fixture
+def mock_chat_service():
+    mock_service = Mock(spec=ChatService)
+    mock_service.get_or_create_session.return_value = {
+        "session_id": "test-session-123",
+        "conversation_turns": 0,
+        "max_turns": 3,
+        "is_active": True
+    }
+    mock_service.save_chat_message.return_value = Mock()
+    mock_service.update_session_turns.return_value = {
+        "session_id": "test-session-123",
+        "conversation_turns": 1,
+        "max_turns": 3,
+        "is_active": True
+    }
+    mock_service.log_api_call.return_value = Mock()
+    return mock_service
 
 # Mock User 클래스 정의
 class MockUser:
@@ -72,31 +94,39 @@ def mock_user():
 
 
 @pytest.fixture
-def client(mock_db, mock_user):
+def client(mock_chat_service):
     """FastAPI 테스트 클라이언트"""
+    test_app = FastAPI()
+    test_app.include_router(chat_router)
+    test_app.include_router(health_router)
+
     # 의존성 오버라이드
-    app.dependency_overrides[get_db] = lambda: mock_db
-    app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_chat_service] = lambda: mock_chat_service
+    test_app.dependency_overrides[get_current_user] = get_current_user_mock
     
-    with TestClient(app) as client:
+    with TestClient(test_app) as client:
         yield client
     
     # 의존성 오버라이드 정리
-    app.dependency_overrides.clear()
+    test_app.dependency_overrides.clear()
 
 
 @pytest.fixture
-async def async_client(mock_db, mock_user) -> AsyncGenerator[AsyncClient, None]:
+async def async_client(mock_chat_service) -> AsyncGenerator[AsyncClient, None]:
     """비동기 HTTP 클라이언트"""
+    test_app = FastAPI()
+    test_app.include_router(chat_router)
+    test_app.include_router(health_router)
+
     # 의존성 오버라이드
-    app.dependency_overrides[get_db] = lambda: mock_db
-    app.dependency_overrides[get_current_user] = lambda: mock_user
+    test_app.dependency_overrides[get_chat_service] = lambda: mock_chat_service
+    test_app.dependency_overrides[get_current_user] = get_current_user_mock
     
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    async with AsyncClient(app=test_app, base_url="http://test") as client:
         yield client
     
     # 의존성 오버라이드 정리
-    app.dependency_overrides.clear()
+    test_app.dependency_overrides.clear()
 
 
 @pytest.fixture

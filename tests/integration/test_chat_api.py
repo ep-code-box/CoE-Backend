@@ -19,7 +19,7 @@ class TestChatAPI:
         response = client.options("/v1/chat/completions")
         assert response.status_code in [200, 405]  # 엔드포인트가 존재함
     
-    @patch('core.llm_client.get_llm_client')
+    @patch('core.llm_client.get_client_for_model')
     def test_chat_completions_basic_request(self, mock_get_client, client: TestClient):
         """기본 채팅 완성 요청 테스트"""
         # Mock LLM 클라이언트 설정

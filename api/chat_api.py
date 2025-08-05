@@ -4,12 +4,19 @@
 
 import time
 import uuid
-from fastapi import APIRouter, HTTPException
+import logging
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
 from core.schemas import ChatRequest, ChatResponse, OpenAIChatRequest
 from core.llm_client import client, get_client_for_model, get_model_info
+from core.database import get_db
+from services.chat_service import get_chat_service
 from utils.streaming_utils import agent_stream_generator, proxy_stream_generator
 from tools.utils import find_last_user_message
+
+logger = logging.getLogger(__name__)
 
 # 전역 변수로 에이전트 정보 저장
 _agent = None
@@ -26,7 +33,8 @@ router = APIRouter(
 )
 
 
-async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: str):
+async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: str, 
+                              request: Request, db: Session):
     """
     CoE 에이전트 요청을 처리합니다.
     
@@ -34,32 +42,116 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         req: OpenAI 호환 채팅 요청
         agent: 컴파일된 LangGraph 에이전트
         agent_model_id: 에이전트 모델 ID
+        request: FastAPI Request 객체
+        db: 데이터베이스 세션
         
     Returns:
         스트리밍 또는 일반 JSON 응답
     """
+    start_time = time.time()
+    chat_service = get_chat_service()
+    
+    # 세션 ID 추출 (헤더에서 또는 새로 생성)
+    session_id = request.headers.get("X-Session-ID")
+    user_agent = request.headers.get("User-Agent")
+    ip_address = request.client.host if request.client else None
+    
+    # 세션 생성 또는 조회
+    session = chat_service.get_or_create_session(
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=ip_address
+    )
+    
+    # 사용자 메시지 저장
+    user_message = find_last_user_message([msg.model_dump() for msg in req.messages])
+    if user_message:
+        chat_service.save_chat_message(
+            session_id=session.session_id,
+            role="user",
+            content=user_message,
+            turn_number=session.conversation_turns + 1
+        )
+    
+    # 에이전트 상태 준비
     state = {"messages": [msg.model_dump() for msg in req.messages]}
     
-    # 에이전트 실행
-    result = await agent.ainvoke(state)
-    final_message = find_last_user_message(result["messages"], role="assistant")
-
-    if req.stream:
-        # 스트리밍 응답
-        return StreamingResponse(
-            agent_stream_generator(req.model, final_message),
-            media_type="text/event-stream"
+    # 도구 선택 및 실행 정보를 추적하기 위한 컨텍스트 설정
+    tool_context = {
+        "session_id": session.session_id,
+        "chat_service": chat_service,
+        "turn_number": session.conversation_turns + 1
+    }
+    
+    # 상태에 컨텍스트 추가
+    state["_tool_context"] = tool_context
+    
+    try:
+        # 에이전트 실행
+        result = await agent.ainvoke(state)
+        final_message = find_last_user_message(result["messages"], role="assistant")
+        
+        # 응답 시간 계산
+        response_time_ms = int((time.time() - start_time) * 1000)
+        
+        # 어시스턴트 메시지 저장 (도구 정보는 tool_wrapper에서 처리됨)
+        if final_message:
+            chat_service.save_chat_message(
+                session_id=session.session_id,
+                role="assistant",
+                content=final_message,
+                turn_number=session.conversation_turns + 1
+            )
+        
+        # 세션 턴 수 업데이트
+        chat_service.update_session_turns(session.session_id)
+        
+        # API 호출 로그 저장
+        chat_service.log_api_call(
+            session_id=session.session_id,
+            endpoint="/v1/chat/completions",
+            method="POST",
+            request_data={"model": req.model, "message_count": len(req.messages)},
+            response_status=200,
+            response_time_ms=response_time_ms
         )
-    else:
-        # 일반 JSON 응답
-        return {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": req.model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": final_message}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}  # 사용량은 추적하지 않음
-        }
+        
+        if req.stream:
+            # 스트리밍 응답
+            return StreamingResponse(
+                agent_stream_generator(req.model, final_message),
+                media_type="text/event-stream",
+                headers={"X-Session-ID": session.session_id}
+            )
+        else:
+            # 일반 JSON 응답
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": final_message}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},  # 사용량은 추적하지 않음
+                "x_session_id": session.session_id  # 세션 ID 반환
+            }
+            
+    except Exception as e:
+        # 오류 발생 시 로깅
+        response_time_ms = int((time.time() - start_time) * 1000)
+        error_message = str(e)
+        
+        chat_service.log_api_call(
+            session_id=session.session_id,
+            endpoint="/v1/chat/completions",
+            method="POST",
+            request_data={"model": req.model, "message_count": len(req.messages)},
+            response_status=500,
+            response_time_ms=response_time_ms,
+            error_message=error_message
+        )
+        
+        logger.error(f"에이전트 실행 오류: {error_message}")
+        raise HTTPException(status_code=500, detail=f"에이전트 실행 오류: {error_message}")
 
 
 async def handle_llm_proxy_request(req: OpenAIChatRequest):
@@ -142,6 +234,7 @@ def set_agent_info(agent, agent_model_id: str):
     ```bash
     curl -X POST "http://localhost:8000/v1/chat/completions" \\
       -H "Content-Type: application/json" \\
+      -H "X-Session-ID: your-session-id" \\
       -d '{
         "model": "coe-agent-v1",
         "messages": [
@@ -153,17 +246,19 @@ def set_agent_info(agent, agent_model_id: str):
     
     ### 🔄 스트리밍 지원
     `"stream": true` 설정으로 실시간 응답을 받을 수 있습니다.
+    
+    ### 📊 세션 관리
+    `X-Session-ID` 헤더로 세션을 지정할 수 있습니다. 없으면 새 세션이 생성됩니다.
     """,
     response_description="채팅 완성 응답 (스트리밍 또는 JSON)"
 )
-async def chat_completions(req: OpenAIChatRequest):
+async def chat_completions(req: OpenAIChatRequest, request: Request):
     """OpenAI API와 호환되는 채팅 엔드포인트 - CoE 에이전트 또는 외부 LLM 호출"""
-    print(f"DEBUG: Received request: {req}")
-    print(f"DEBUG: Agent model ID: {_agent_model_id}")
+    logger.info(f"채팅 요청 수신: model={req.model}, messages={len(req.messages)}")
     
     # 1. CoE 에이전트 모델을 요청한 경우
     if req.model == _agent_model_id:
-        return await handle_agent_request(req, _agent, _agent_model_id)
+        return await handle_agent_request(req, _agent, _agent_model_id, request)
     # 2. 일반 LLM 모델을 요청한 경우 (프록시 역할)
     else:
         return await handle_llm_proxy_request(req)

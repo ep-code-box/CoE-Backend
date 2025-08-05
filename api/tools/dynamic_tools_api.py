@@ -129,8 +129,14 @@ class DynamicToolsAPI:
                     if key not in state:
                         state[key] = value
                 
+                # 도구 실행 시작 로그
+                logger.info(f"🚀 [API_TOOL_EXECUTION_START] Starting API execution of tool: '{tool_name}'")
+                
                 # 도구 실행
                 result = node_func(state)
+                
+                # 도구 실행 완료 로그
+                logger.info(f"✅ [API_TOOL_EXECUTION_COMPLETE] API execution of tool '{tool_name}' completed successfully")
                 
                 return ToolExecutionResponse(
                     success=True,
@@ -139,7 +145,7 @@ class DynamicToolsAPI:
                 )
                 
             except Exception as e:
-                logger.error(f"Error executing tool {tool_name}: {e}")
+                logger.error(f"❌ [API_TOOL_EXECUTION_ERROR] API execution of tool '{tool_name}' failed: {e}")
                 return ToolExecutionResponse(
                     success=False,
                     result={},
