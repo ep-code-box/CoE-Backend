@@ -8,12 +8,13 @@ import logging
 from typing import List, Dict, Any
 from core.schemas import ChatState
 from core.llm_client import client, default_model
-from tools.utils import find_last_user_message
+from tools.utils import extract_git_url, find_last_user_message
 
 logger = logging.getLogger(__name__)
 
 
 def router_node(state: ChatState, tool_descriptions: List[Dict[str, Any]]) -> dict:
+    
     """
     사용자의 요청에 가장 적합한 도구를 선택하는 라우터 노드입니다.
     

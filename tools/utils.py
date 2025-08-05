@@ -13,7 +13,8 @@ def find_last_user_message(messages: list, role: str = "user") -> str | None:
     """
     for msg in reversed(messages):
         if msg.get("role") == role:
-            return msg.get("content")
+            content = msg.get("content")
+            return content if content is not None else ""
     return None
 
 def extract_git_url(text: str) -> str | None:
