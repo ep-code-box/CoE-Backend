@@ -56,10 +56,15 @@ def tool_execution_wrapper(tool_name: str, tool_func: Callable) -> Callable:
                 try:
                     # 도구 실행 결과를 시스템 메시지로 저장
                     tool_result_content = ""
-                    if "messages" in result and result["messages"]:
+                    if result and "messages" in result and result["messages"]:
                         last_message = result["messages"][-1]
                         if isinstance(last_message, dict) and "content" in last_message:
-                            tool_result_content = last_message["content"]
+                            content = last_message["content"]
+                            tool_result_content = str(content) if content is not None else ""
+                        elif last_message is not None: # Handle cases where last_message is not a dict but not None
+                            tool_result_content = str(last_message)
+                    elif result is not None: # Handle cases where result is not a dict with messages but not None
+                        tool_result_content = str(result)
                     
                     chat_service.save_chat_message(
                         session_id=session_id,

@@ -1,1 +1,0 @@
-# CoE-Backend Test Suite

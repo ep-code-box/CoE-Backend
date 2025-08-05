@@ -101,7 +101,7 @@ app.add_middleware(
 # enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
 # app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
 
-# 로깅 설정 - uvicorn과 중복 방지
+# 로깅 설정: 모든 로그를 하나의 핸들러로 처리
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -109,22 +109,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 도구 추적을 위한 전용 로거 설정
+# tool_tracker 로거는 이제 기본 로깅 설정을 따르도록 propagate=True (기본값) 유지
+# 별도의 핸들러를 추가하지 않음
 tool_logger = logging.getLogger("tool_tracker")
-tool_handler = logging.StreamHandler()
-tool_handler.setFormatter(logging.Formatter('%(asctime)s - 🔧 TOOL_TRACKER - %(levelname)s - %(message)s'))
-tool_logger.addHandler(tool_handler)
-tool_logger.setLevel(logging.INFO)
-tool_logger.propagate = False  # 중복 로그 방지
+tool_logger.setLevel(logging.INFO) # tool_tracker 로거의 레벨 설정
+tool_logger.propagate = True # 루트 로거로 전파
 
 # uvicorn 로거 설정 조정 (중복 로그 방지)
 uvicorn_logger = logging.getLogger("uvicorn.access")
 uvicorn_logger.disabled = False  # uvicorn 로그는 유지
 
-# 루트 로거의 핸들러 중복 방지
+# 루트 로거의 핸들러 중복 방지 (basicConfig가 이미 처리하지만, 혹시 모를 경우 대비)
 root_logger = logging.getLogger()
 if len(root_logger.handlers) > 1:
-    # 중복된 핸들러 제거 (첫 번째만 유지)
     for handler in root_logger.handlers[1:]:
         root_logger.removeHandler(handler)
 
