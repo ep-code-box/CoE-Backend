@@ -166,5 +166,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0", port=8000, reload=is_development,
-        reload_excludes=[".*", ".py[cod]", "__pycache__", ".env", ".venv", ".git", "output","gitsync"],  # 감시를 제외할 파일 지정],  # 제외할 패턴 지정
+        reload_dirs=["api", "config","core", "routers", "services", "flows", "tools", "utils"],  # 감시할 디렉토리 지정
+        reload_excludes=[".*", ".py[cod]", "__pycache__", ".env", ".venv", ".git", "output","gitsync"]  # 감시를 제외할 파일 지정
     )
