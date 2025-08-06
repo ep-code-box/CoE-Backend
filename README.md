@@ -1,6 +1,6 @@
 # 🤖 CoE-Backend: AI 에이전트 및 API 서버
 
-**CoE(Center of Excellence) for AI** 플랫폼의 핵심 백엔드 서버입니다. **LangGraph**와 **FastAPI**를 기반으로 구축된 확장 가능한 AI 에이전트 시스템으로, 다양한 AI 워크플로우를 지원합니다.
+**CoE for AI** 플랫폼의 핵심 백엔드 서버입니다. **LangGraph**와 **FastAPI**를 기반으로 구축된 확장 가능한 AI 에이전트 시스템으로, 다양한 AI 워크플로우를 지원합니다.
 
 ## 🎯 핵심 가치
 

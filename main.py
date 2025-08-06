@@ -37,7 +37,7 @@ agent, tool_descriptions, agent_model_id = build_agent_graph()
 app = FastAPI(
     title="🤖 CoE Backend API",
     description="""
-    ## CoE(Center of Excellence) for AI - Backend API Server
+    ## CoE for AI - Backend API Server
     
     이 API는 **LangGraph 기반 AI 에이전트**와 **다양한 개발 도구**를 제공하는 백엔드 서버입니다.
     
