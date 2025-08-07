@@ -1,30 +1,61 @@
-# 🔧 CoE-Backend 도구 개발자 가이드
+# 도구 개발자 가이드
 
-이 문서는 CoE-Backend의 AI 에이전트가 사용하는 **도구(Tool)**를 개발하는 방법을 안내합니다.
+이 가이드는 CoE-Backend 시스템에 새로운 도구를 생성하고 통합하는 방법을 설명합니다. 도구는 특정 작업을 수행하고 메인 애플리케이션 그래프에 동적으로 로드되는 독립적인 Python 모듈입니다.
 
-## 🎯 핵심 개념: 도구 레지스트리 패턴
+## 핵심 개념
 
-CoE-Backend는 **도구 레지스트리(Tool Registry)** 패턴을 사용하여 `main.py`나 에이전트 코드를 직접 수정하지 않고도 새로운 기능을 쉽게 추가할 수 있습니다.
+- **동적 로딩:** `tools/registry.py`가 도구를 자동으로 발견하고 등록합니다. 새 도구를 수동으로 등록할 필요가 없습니다.
+- **네이밍 컨벤션:** 동적 로딩 메커니즘은 도구 모듈 내의 함수 및 변수에 대한 엄격한 이름 지정 규칙에 의존합니다.
+- **상태 관리:** 각 도구 노드는 대화 기록 및 기타 관련 데이터를 그래프를 통해 전달하는 `ChatState` 객체에서 작동합니다.
+- **API 노출:** `api/tools/dynamic_tools_api.py`는 도구 설명에 `url_path`가 포함된 모든 도구를 자동으로 FastAPI 엔드포인트로 생성합니다. 이를 통해 각 도구를 직접 API로 호출할 수 있습니다.
 
-`tools/registry.py`의 `load_all_tools()` 함수는 서버 시작 시 `tools` 디렉터리 내의 모든 파이썬 파일을 스캔하여, 특정 명명 규칙을 따르는 함수와 변수를 찾아 에이전트의 도구로 자동 등록합니다.
+## 새 도구를 만드는 방법
 
-## 📜 도구 파일의 3가지 핵심 요소
+새 도구를 만들려면 다음 단계를 따르세요.
 
-새로운 도구를 추가하려면 `tools/` 디렉터리에 `.py` 파일을 생성하고 다음 세 가지 규칙에 따라 구성요소를 정의하면 됩니다.
+### 1. 도구 파일 생성
 
-### 1. 도구 설명 (`*_description` 또는 `*_descriptions`)
+`/tools` 디렉토리 또는 그 하위 디렉토리에 새 Python 파일을 만듭니다 (예: `my_new_tool.py`).
 
-LLM 라우터가 어떤 상황에 이 도구를 사용해야 할지 판단하는 데 사용하는 메타데이터입니다.
+### 2. 노드 함수 정의
 
--   **변수명:** `_description` 또는 `_descriptions`로 끝나야 합니다.
--   **형식:** `Dict` 또는 `List[Dict]`.
--   **필수 키:**
-    -   `name` (str): 도구의 고유 이름. 노드 함수의 이름과 일치해야 합니다 (`<name>_node`).
-    -   `description` (str): 도구의 기능을 명확하고 상세하게 설명하는 문장. LLM이 이 설명을 보고 도구를 선택하므로 매우 중요합니다.
--   **선택적 키:**
-    -   `url_path` (str): 이 값을 지정하면 `/tools/<url_path>` 경로로 `GET`(정보 조회) 및 `POST`(도구 실행) API 엔드포인트가 자동으로 생성됩니다. (`api/tools/dynamic_tools_api.py` 참조)
+이 함수는 도구의 핵심 로직을 포함합니다. 에이전트가 도구를 사용하기로 결정하면 실행됩니다.
 
-**예시 (`basic_tools.py`):**
+- **이름:** 함수 이름은 반드시 `_node`로 끝나야 합니다. 예: `my_new_tool_node`.
+- **매개변수:** `ChatState` 객체인 `state`라는 단일 인수를 받아야 합니다.
+- **반환 값:** 상태를 업데이트하는 사전을 반환해야 합니다. 일반적으로 여기에는 대화 기록에 추가될 새 메시지 목록이 있는 `messages` 키가 포함됩니다.
+
+**예시:**
+```python
+from typing import Dict, Any
+from core.schemas import ChatState
+
+def my_new_tool_node(state: ChatState) -> Dict[str, Any]:
+    user_input = state.get("original_input", "")
+    result_content = f"내 도구가 처리함: {user_input}"
+    return {"messages": [{"role": "assistant", "content": result_content}]}
+```
+
+### 3. 도구 설명 추가
+
+에이전트의 라우터는 이 설명을 사용하여 도구가 무엇을 하는지, 언제 사용해야 하는지 이해합니다.
+
+- **이름:** 변수 이름은 단일 도구의 경우 `_description`으로, 파일 하나에 여러 도구가 있는 경우 `_descriptions`로 끝나야 합니다.
+- **형식:** 다음 키를 가진 사전(또는 사전 목록)이어야 합니다.
+    - `name`: 도구의 고유 식별자입니다. `_node` 접미사가 없는 노드 함수 이름과 일치해야 합니다 (예: `my_new_tool`).
+    - `description`: 도구가 수행하는 작업에 대한 명확하고 간결한 설명입니다. 에이전트가 올바른 라우팅 결정을 내리는 데 매우 중요합니다.
+    - `url_path`: (선택 사항) 도구를 외부 API 엔드포인트로 노출할 경우 사용하는 경로입니다. `dynamic_tools_api.py`가 이 경로를 사용합니다.
+
+**예시 1: 단일 도구 (`_description`)**
+```python
+my_new_tool_description = {
+    "name": "my_new_tool",
+    "description": "새로운 단일 도구의 기능을 설명합니다.",
+    "url_path": "/tools/my-new-tool"
+}
+```
+
+**예시 2: 여러 도구 (`_descriptions`)**
 ```python
 basic_tool_descriptions = [
     {
@@ -40,129 +71,30 @@ basic_tool_descriptions = [
 ]
 ```
 
-### 2. 노드 함수 (`*_node`)
+### 4. (고급) 특수 엣지 정의
 
-도구의 실제 로직을 수행하는 함수입니다. LangGraph의 노드(Node)로 등록됩니다.
+도구에 복잡한 제어 흐름(예: 실행 후 조건부 분기)이 필요한 경우 그래프에 대한 특수 엣지를 정의할 수 있습니다.
 
--   **함수명:** `<name>_node` 형식이어야 합니다. `name`은 도구 설명의 `name`과 일치해야 합니다.
--   **시그니처:** `(state: ChatState) -> Dict[str, Any]`
-    -   `state` (`ChatState`): 에이전트의 현재 상태를 담고 있는 딕셔너리. 대화 기록(`messages`), 사용자 입력(`original_input`) 등이 포함됩니다.
--   **반환값:** `Dict[str, Any]`. 에이전트의 상태를 업데이트할 딕셔너리를 반환해야 합니다. 일반적으로 도구 실행 결과를 담은 메시지를 반환합니다.
+- **이름:** 변수 이름은 반드시 `_edges`로 끝나야 합니다.
+- **형식:** 각 사전이 노드 간의 조건부 또는 표준 엣지를 정의하는 사전 목록입니다.
 
-**예시 (`basic_tools.py`):**
+**예시 (`api_tool.py`에서):
 ```python
-from core.schemas import ChatState
-from .utils import find_last_user_message
+from langgraph.graph import END
 
-def tool1_node(state: ChatState) -> Dict[str, Any]:
-    """Converts the last user message to uppercase."""
-    user_content = find_last_user_message(state["messages"])
-    if user_content:
-        # 성공 시, assistant 역할의 메시지를 반환하여 상태를 업데이트
-        return {"messages": [{"role": "assistant", "content": user_content.upper()}]}
-    # 실패 시, system 역할의 에러 메시지를 반환
-    return {"messages": [{"role": "system", "content": "Tool1 Error: User message not found."}]}
+def after_api_call(state: ChatState) -> str:
+    return "class_analysis" if state.get("next_node") == "combined_tool" else END
+
+api_tool_edges = [
+    {
+        "type": "conditional",
+        "source": "api_call",
+        "condition": after_api_call,
+        "path_map": {"class_analysis": "class_analysis", END: END}
+    }
+]
 ```
 
-### 3. 특수 엣지 (`*_edges`) (고급)
+## 자동 등록
 
-기본적으로 모든 도구는 실행 후 라우터로 돌아갑니다. 하지만 특정 조건에 따라 다음 단계를 직접 지정하고 싶을 때 사용하는 변수입니다.
-
--   **변수명:** `_edges`로 끝나야 합니다.
--   **형식:** `Dict` 또는 `List[Dict]`.
--   **내용:** `{"source_node_name": "target_node_name"}` 형식의 딕셔너리.
-
-**예시:**
-```python
-# 이 도구가 실행된 후에는 'human_feedback_node'로 이동하도록 지정
-my_tool_edges = {
-    "my_tool": "human_feedback"
-}
-```
-
-## 🚀 단계별 새 도구 추가 가이드
-
-`날씨를 알려주는 도구`를 추가하는 과정을 예시로 설명합니다.
-
-### 1단계: 도구 파일 생성
-
-`tools/weather_tool.py` 파일을 새로 만듭니다.
-
-### 2단계: 도구 설명 정의
-
-LLM이 "오늘 날씨 어때?"와 같은 질문에 이 도구를 선택할 수 있도록 상세한 설명을 작성합니다. API 엔드포인트도 추가해 보겠습니다.
-
-```python
-# tools/weather_tool.py
-
-# 1. 도구 설명 정의
-weather_tool_description = {
-    "name": "get_weather",
-    "description": "특정 지역의 현재 날씨 정보를 조회합니다. '서울 날씨 알려줘'와 같이 지역 이름이 포함되어야 합니다.",
-    "url_path": "/tools/weather" # API 엔드포인트 자동 생성
-}
-```
-
-### 3단계: 노드 함수 구현
-
-사용자 메시지에서 지역을 추출하고, 외부 날씨 API를 호출하는 로직을 구현합니다.
-
-```python
-# tools/weather_tool.py
-import re
-import httpx # 외부 API 호출을 위한 라이브러리
-from typing import Dict, Any
-from core.schemas import ChatState
-from .utils import find_last_user_message
-
-# (설명 변수는 위에 정의됨)
-
-# 2. 노드 함수 구현
-async def get_weather_node(state: ChatState) -> Dict[str, Any]:
-    user_message = find_last_user_message(state["messages"])
-    if not user_message:
-        return {"messages": [{"role": "system", "content": "오류: 사용자 메시지를 찾을 수 없습니다."}]}
-
-    # 간단한 정규식으로 지역 이름 추출
-    match = re.search(r"(.+?) 날씨", user_message)
-    if not match:
-        return {"messages": [{"role": "assistant", "content": "어느 지역의 날씨를 알려드릴까요?"}]}
-    
-    location = match.group(1).strip()
-    
-    try:
-        # 외부 날씨 API 호출 (예시)
-        api_url = f"https://api.weather.com/v1/current?location={location}"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(api_url)
-            response.raise_for_status() # 오류 발생 시 예외 발생
-            weather_data = response.json()
-            
-            # 결과 포맷팅
-            result_content = f"{location}의 현재 날씨: {weather_data['summary']}, 기온: {weather_data['temp']}°C"
-            
-            return {"messages": [{"role": "assistant", "content": result_content}]}
-
-    except httpx.HTTPStatusError as e:
-        return {"messages": [{"role": "system", "content": f"오류: 날씨 정보를 가져오는 데 실패했습니다. (HTTP {e.response.status_code})"}}
-    except Exception as e:
-        return {"messages": [{"role": "system", "content": f"오류: 날씨 정보 조회 중 예기치 않은 오류가 발생했습니다: {e}"}]}
-
-```
-
-### 4단계: 서버 재시작 및 테스트
-
-개발 모드(`APP_ENV=development`)에서는 서버가 자동으로 재시작되며 새로운 `get_weather` 도구가 로드됩니다.
-
--   **AI 에이전트 테스트:** OpenWebUI나 `/v1/chat/completions` API를 통해 "서울 날씨 알려줘"라고 질문하여 테스트합니다.
--   **API 엔드포인트 테스트:**
-    -   `GET http://localhost:8000/tools/weather` 로 도구 정보를 확인합니다.
-    -   `POST http://localhost:8000/tools/weather` 로 도구를 직접 실행할 수 있습니다.
-
-## ✨ 모범 사례
-
--   **단일 책임 원칙:** 각 도구는 하나의 명확한 기능만 수행하도록 설계하세요.
--   **명확한 설명:** LLM이 도구의 기능과 필요한 인수를 쉽게 이해할 수 있도록 `description`을 상세하게 작성하세요.
--   **견고한 에러 처리:** 외부 API 호출 실패, 잘못된 입력 등 예상 가능한 모든 오류 상황을 `try-except` 블록으로 처리하고, 사용자에게 친절한 메시지를 반환하세요.
--   **유틸리티 함수 활용:** 여러 도구에서 공통으로 사용되는 로직(예: 마지막 사용자 메시지 찾기)은 `tools/utils.py`에 작성하여 재사용하세요.
--   **로깅:** 디버깅을 위해 `logging` 모듈을 사용하여 주요 실행 단계나 오류 정보를 기록하세요.
+네이밍 컨벤션(`_node`, `_description(s)`, `_edges`)을 따르는 한, `tools/registry.py`는 시작 시 자동으로 도구를 찾아 로드합니다. 추가 등록 단계는 필요하지 않습니다.
