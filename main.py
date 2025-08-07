@@ -15,13 +15,10 @@ from api.health_api import router as health_router
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.vector.vector_api import router as vector_router
 from api.embeddings_api import router as embeddings_router
-from api.auth_api import router as auth_router
+
 from api.tools.dynamic_tools_api import router as dynamic_tools_router
 from core.database import init_database
-from core.middleware import (
-    AuthenticationMiddleware, RateLimitMiddleware, 
-    SecurityHeadersMiddleware, RequestLoggingMiddleware
-)
+
 
 # 데이터베이스 초기화
 print("🔄 Initializing database...")
@@ -45,15 +42,13 @@ app = FastAPI(
     - **AI 에이전트 채팅**: OpenAI 호환 채팅 API (`/v1/chat/completions`)
     - **코딩 어시스턴트**: 코드 생성, 분석, 리팩토링, 리뷰 (`/api/coding-assistant/`)
     - **벡터 검색**: ChromaDB 기반 벡터 검색 및 RAG (`/vector/`)
-    - **사용자 인증**: JWT 기반 인증 시스템 (`/auth/`)
     - **LangFlow 연동**: 워크플로우 관리 (`/flows/`)
     - **동적 도구**: 자동 도구 등록 및 관리 (`/tools/`)
     
     ### 📚 사용 가이드
-    1. **인증**: `/auth/register` 또는 `/auth/login`으로 계정 생성/로그인
-    2. **AI 채팅**: `/v1/chat/completions`로 AI 에이전트와 대화
-    3. **코딩 지원**: `/api/coding-assistant/`로 코드 관련 작업 수행
-    4. **벡터 검색**: `/vector/search`로 문서 검색
+    1. **AI 채팅 시작**: `/v1/chat/completions`로 첫 대화를 시작하면, 응답으로 `session_id`가 발급됩니다.
+    2. **대화 이어가기**: 다음 요청부터는 받은 `session_id`를 요청 본문에 포함시켜 보내면, AI가 이전 대화 내용을 기억하고 맥락에 맞는 답변을 합니다.
+    3. **코딩 지원 및 벡터 검색**: 필요에 따라 다른 API들을 활용하여 개발 작업을 보조할 수 있습니다.
     
     ### 🔗 연동 서비스
     - **OpenWebUI**: `http://localhost:8000/v1` 설정으로 연동 가능
@@ -97,9 +92,7 @@ app.add_middleware(
 # rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 # app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
 
-# 5. 인증 미들웨어 (선택적 활성화) - 임시 비활성화
-# enforce_auth = os.getenv("ENFORCE_AUTH", "true").lower() == "true"
-# app.add_middleware(AuthenticationMiddleware, enforce_auth=enforce_auth)
+
 
 # 로깅 설정: 모든 로그를 하나의 핸들러로 처리
 logging.basicConfig(
@@ -142,7 +135,7 @@ set_agent_info(agent, agent_model_id)
 # 라우터들 등록
 app.include_router(health_router)
 
-app.include_router(auth_router)
+
 app.include_router(models_router)
 app.include_router(flows_router)
 app.include_router(coding_assistant_router)

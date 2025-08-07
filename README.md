@@ -59,7 +59,7 @@ CoE-Backend/
 ├── test_coding_assistant.py # 코딩 어시스턴트 테스트
 ├── api/                    # API 엔드포인트 모듈
 │   ├── __init__.py
-│   ├── auth_api.py         # 인증 관련 API
+
 │   ├── chat_api.py         # 채팅 API (OpenAI 호환)
 │   ├── embeddings_api.py   # 임베딩 API
 │   ├── flows_api.py        # LangFlow 워크플로우 API
@@ -77,7 +77,7 @@ CoE-Backend/
 │   └── models.json         # 지원 모델 설정
 ├── core/                   # 핵심 비즈니스 로직
 │   ├── __init__.py
-│   ├── auth.py             # 인증 및 권한 관리
+
 │   ├── database.py         # 데이터베이스 연결 및 모델
 │   ├── graph_builder.py    # LangGraph 동적 구성
 │   ├── llm_client.py       # LLM 클라이언트 초기화
@@ -235,10 +235,7 @@ REDIS_PORT=6669
 REDIS_PASSWORD=coe_redis_password
 REDIS_AUTH_DB=1
 
-# === JWT 인증 설정 ===
-JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
+
 
 # === 애플리케이션 설정 ===
 APP_ENV=development
@@ -543,13 +540,7 @@ tools/
 | `/flows/{name}` | GET | 특정 워크플로우 조회 |
 | `/flows/{name}` | DELETE | 워크플로우 삭제 |
 
-### 🔐 인증 & 사용자
-| 엔드포인트 | 메서드 | 설명 |
-|-----------|--------|------|
-| `/auth/register` | POST | 사용자 등록 |
-| `/auth/login` | POST | 로그인 & 토큰 발급 |
-| `/auth/refresh` | POST | 토큰 갱신 |
-| `/auth/profile` | GET | 사용자 프로필 |
+
 
 ### 🏥 시스템 상태
 | 엔드포인트 | 메서드 | 설명 |

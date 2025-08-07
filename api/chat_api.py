@@ -52,10 +52,10 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         스트리밍 또는 일반 JSON 응답
     """
     start_time = time.time()
-    chat_service = get_chat_service(db) # Pass the db session here
+    chat_service = get_chat_service(db)
     
-    # 세션 ID 추출 (헤더에서 또는 새로 생성)
-    session_id = request.headers.get("X-Session-ID")
+    # 요청 본문에서 session_id 추출 또는 새로 생성
+    session_id = req.session_id
     user_agent = request.headers.get("User-Agent")
     ip_address = request.client.host if request.client else None
     
@@ -65,6 +65,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         user_agent=user_agent,
         ip_address=ip_address
     )
+    current_session_id = session['session_id']
     
     # 메시지 내용이 None인 경우 빈 문자열로 대체
     sanitized_messages = []
@@ -78,7 +79,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
     user_message = find_last_user_message(sanitized_messages)
     if user_message is not None:
         chat_service.save_chat_message(
-            session_id=session['session_id'],
+            session_id=current_session_id,
             role="user",
             content=user_message,
             turn_number=session['conversation_turns'] + 1
@@ -89,7 +90,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
     
     # 도구 선택 및 실행 정보를 추적하기 위한 컨텍스트 설정
     tool_context = {
-        "session_id": session['session_id'],
+        "session_id": current_session_id,
         "chat_service": chat_service,
         "turn_number": session['conversation_turns'] + 1
     }
@@ -99,7 +100,6 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
     
     try:
         # 에이전트 실행
-        print("DEBUG: Attempting to invoke agent.")
         result = await agent.ainvoke(state)
         final_message = find_last_user_message(result["messages"], role="assistant")
 
@@ -109,22 +109,22 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         # final_message가 None일 경우를 대비하여 기본 메시지 설정
         if final_message is None:
             final_message = "죄송합니다. 답변을 생성하지 못했습니다."
-            logger.warning(f"에이전트가 응답을 생성하지 못했습니다. session_id={session['session_id']}")
+            logger.warning(f"에이전트가 응답을 생성하지 못했습니다. session_id={current_session_id}")
 
         # 어시스턴트 메시지 저장 (도구 정보는 tool_wrapper에서 처리됨)
         chat_service.save_chat_message(
-            session_id=session['session_id'],
+            session_id=current_session_id,
             role="assistant",
             content=final_message,
             turn_number=session['conversation_turns'] + 1
         )
         
         # 세션 턴 수 업데이트
-        chat_service.update_session_turns(session['session_id'])
+        chat_service.update_session_turns(current_session_id)
         
         # API 호출 로그 저장
         chat_service.log_api_call(
-            session_id=session['session_id'],
+            session_id=current_session_id,
             endpoint="/v1/chat/completions",
             method="POST",
             request_data={"model": req.model, "message_count": len(req.messages)},
@@ -135,9 +135,8 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         if req.stream:
             # 스트리밍 응답
             return StreamingResponse(
-                agent_stream_generator(req.model, final_message),
-                media_type="text/event-stream",
-                headers={"X-Session-ID": session['session_id']}
+                agent_stream_generator(req.model, final_message, current_session_id),
+                media_type="text/event-stream"
             )
         else:
             # 일반 JSON 응답
@@ -147,8 +146,8 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
                 "created": int(time.time()),
                 "model": req.model,
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": final_message}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},  # 사용량은 추적하지 않음
-                "x_session_id": session['session_id']  # 세션 ID 반환
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "session_id": current_session_id
             }
             
     except Exception as e:
@@ -157,7 +156,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         error_message = str(e)
         
         chat_service.log_api_call(
-            session_id=session['session_id'],
+            session_id=current_session_id,
             endpoint="/v1/chat/completions",
             method="POST",
             request_data={"model": req.model, "message_count": len(req.messages)},
@@ -233,44 +232,49 @@ def set_agent_info(agent, agent_model_id: str):
 
 @router.post(
     "/chat/completions",
-    summary="AI 채팅 완성",
+    summary="AI 채팅 API (OpenAI 호환)",
     description="""
-    **OpenAI API와 호환되는 채팅 엔드포인트입니다.**
-    
-    요청된 모델 ID에 따라 다음과 같이 동작합니다:
-    - **CoE 에이전트 모델**: LangGraph 기반 AI 에이전트 실행
-    - **일반 LLM 모델**: OpenAI/Anthropic 등 외부 LLM API 프록시
-    
+    **OpenAI의 Chat Completions API와 호환되는 AI 에이전트 채팅 엔드포인트입니다.**
+
+    이 엔드포인트는 요청된 `model`에 따라 두 가지 방식으로 동작합니다:
+    1.  **CoE 에이전트 모델 (`coe-agent-v1`)**: LangGraph로 구축된 내부 AI 에이전트를 호출하여, 등록된 도구를 사용한 복잡한 작업 수행이 가능합니다.
+    2.  **일반 LLM 모델 (예: `gpt-4o-mini`)**: 외부 LLM API(OpenAI, Anthropic 등)를 직접 호출하는 프록시 역할을 합니다.
+
+    ### 🔄 세션 관리 (대화 연속성)
+    - **첫 요청**: `session_id` 없이 요청하면, 서버가 새로운 `session_id`를 생성하여 응답 본문에 포함해 반환합니다.
+    - **대화 이어가기**: 다음 요청부터는 이 `session_id`를 요청 본문에 포함시켜 보내야 이전 대화의 맥락을 유지할 수 있습니다.
+
     ### 🤖 지원 모델
-    - `coe-agent-v1`: CoE LangGraph 에이전트 (추천)
-    - `gpt-4`, `gpt-3.5-turbo`: OpenAI 모델
-    - `claude-3-sonnet`: Anthropic 모델
-    
-    ### 📝 사용 예시
+    - `coe-agent-v1`: CoE LangGraph 에이전트 (내부 도구 사용)
+    - `gpt-4o-mini`, `gpt-4o`: OpenAI 모델 프록시
+    - `claude-3-sonnet-20240229`: Anthropic 모델 프록시
+    - 전체 목록은 `/v1/models` API를 통해 확인할 수 있습니다.
+
+    ### 📝 사용 예시 (cURL)
     ```bash
+    # 1. 첫 번째 요청 (세션 시작)
     curl -X POST "http://localhost:8000/v1/chat/completions" \\
       -H "Content-Type: application/json" \\
-      -H "X-Session-ID: your-session-id" \\
       -d '{
         "model": "coe-agent-v1",
-        "messages": [
-          {"role": "user", "content": "안녕하세요! CoE 에이전트 기능을 테스트해보고 싶습니다."}
-        ],
-        "stream": false
+        "messages": [{"role": "user", "content": "LangGraph가 뭐야?"}]
+      }' # 응답에서 session_id 확인
+
+    # 2. 두 번째 요청 (대화 이어가기)
+    curl -X POST "http://localhost:8000/v1/chat/completions" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "model": "coe-agent-v1",
+        "session_id": "여기에_받은_세션ID를_입력하세요",
+        "messages": [{"role": "user", "content": "그것의 장점은 뭐야?"}]
       }'
     ```
-    
-    ### 🔄 스트리밍 지원
-    `"stream": true` 설정으로 실시간 응답을 받을 수 있습니다.
-    
-    ### 📊 세션 관리
-    `X-Session-ID` 헤더로 세션을 지정할 수 있습니다. 없으면 새 세션이 생성됩니다.
     """,
-    response_description="채팅 완성 응답 (스트리밍 또는 JSON)"
+    response_description="채팅 완성 응답. 스트리밍 시 `text/event-stream`, 아닐 경우 `application/json`."
 )
 async def chat_completions(req: OpenAIChatRequest, request: Request, db: Session = Depends(get_db)):
     """OpenAI API와 호환되는 채팅 엔드포인트 - CoE 에이전트 또는 외부 LLM 호출"""
-    logger.info(f"채팅 요청 수신: model={req.model}, messages={len(req.messages)}")
+    logger.info(f"채팅 요청 수신: model={req.model}, messages={len(req.messages)}, session_id={req.session_id})")
     
     # 1. CoE 에이전트 모델을 요청한 경우
     if req.model == _agent_model_id:

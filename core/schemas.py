@@ -29,11 +29,13 @@ class OpenAIChatRequest(BaseModel):
     stream: bool = False
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
+    session_id: Optional[str] = None
     # 다른 OpenAI 파라미터들도 필요에 따라 추가 가능
 
 
 class ChatResponse(BaseModel):
     messages: List[dict]
+    session_id: str
 
 
 # LangFlow 관련 스키마
@@ -83,51 +85,7 @@ class ExecuteFlowResponse(BaseModel):
     error: Optional[str] = None
     execution_time: Optional[float] = None
 
-# 인증 관련 스키마
-class UserRegisterRequest(BaseModel):
-    username: str
-    email: str
-    password: str
-    full_name: Optional[str] = None
 
-class UserLoginRequest(BaseModel):
-    username: str  # username 또는 email
-    password: str
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
-
-class UserResponse(BaseModel):
-    id: int
-    username: str
-    email: str
-    full_name: Optional[str]
-    is_active: bool
-    is_superuser: bool
-    created_at: str  # datetime을 문자열로 직렬화
-    last_login: Optional[str]
-    roles: List[str] = []
-
-class UserUpdateRequest(BaseModel):
-    full_name: Optional[str] = None
-    email: Optional[str] = None
-    is_active: Optional[bool] = None
-
-class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-class RoleResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    permissions: List[str]
 
 class ErrorResponse(BaseModel):
     detail: str

@@ -12,9 +12,7 @@ from typing import Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
-from core.database import ChatMessage, ConversationSummary, APILog
-from core.schemas import ChatState
-from core.auth import redis_client
+from core.database import ChatMessage, ConversationSummary, APILog, redis_client
 
 logger = logging.getLogger(__name__)
 
