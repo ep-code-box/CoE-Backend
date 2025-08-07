@@ -39,21 +39,27 @@ def create_openai_chunk(model_id: str, content: str, finish_reason: str = None) 
     return f"data: {json.dumps(response)}\n\n"
 
 
-async def agent_stream_generator(model_id: str, final_message: str) -> AsyncGenerator[str, None]:
+async def agent_stream_generator(model_id: str, final_message: str, session_id: str) -> AsyncGenerator[str, None]:
     """
     LangGraph 에이전트의 최종 응답을 스트리밍 형식으로 변환하는 비동기 생성기입니다.
     
     Args:
         model_id: 모델 ID
         final_message: 스트리밍할 최종 메시지
+        session_id: 현재 대화 세션 ID
         
     Yields:
         str: OpenAI 스트리밍 형식의 청크들
     """
-    # 메시지를 단어 단위로 나누어 스트리밍 효과를 냅니다.
+    # 첫 번째 청크에만 session_id를 포함
     words = final_message.split(' ')
+    first_chunk = True
     for word in words:
-        yield create_openai_chunk(model_id, f"{word} ")
+        if first_chunk:
+            yield create_openai_chunk(model_id, f"{word} ", session_id=session_id)
+            first_chunk = False
+        else:
+            yield create_openai_chunk(model_id, f"{word} ")
         await asyncio.sleep(0.05)  # 인위적인 딜레이로 스트리밍 효과 극대화
     
     # 스트림 종료를 알리는 마지막 청크

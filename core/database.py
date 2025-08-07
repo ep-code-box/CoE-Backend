@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 from dotenv import load_dotenv
 import enum
+import redis
 
 # 환경 변수 로드
 load_dotenv()
@@ -37,6 +38,20 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Redis 클라이언트 설정
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_AUTH_DB", 1))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
+redis_client = redis.Redis(
+    host=REDIS_HOST, 
+    port=REDIS_PORT, 
+    db=REDIS_DB, 
+    password=REDIS_PASSWORD, 
+    decode_responses=True
+)
 
 # Enum 정의
 class AnalysisStatus(enum.Enum):
@@ -86,64 +101,7 @@ class HTTPMethod(enum.Enum):
 
 # 데이터베이스 모델 정의
 
-# 사용자 인증 관련 모델
-class User(Base):
-    __tablename__ = "users"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, index=True, nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
-    full_name = Column(String(100))
-    is_active = Column(Boolean, default=True)
-    is_superuser = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_login = Column(DateTime, nullable=True)
-    
-    # 관계 설정
-    role_mappings = relationship("UserRoleMapping", back_populates="user", cascade="all, delete-orphan")
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
-class UserRole(Base):
-    __tablename__ = "user_roles"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(50), unique=True, index=True, nullable=False)
-    description = Column(Text)
-    permissions = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # 관계 설정
-    role_mappings = relationship("UserRoleMapping", back_populates="role", cascade="all, delete-orphan")
-
-class UserRoleMapping(Base):
-    __tablename__ = "user_role_mappings"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role_id = Column(Integer, ForeignKey("user_roles.id"), nullable=False)
-    assigned_at = Column(DateTime, default=datetime.utcnow)
-    assigned_by = Column(Integer, nullable=True)  # ForeignKey 제거하여 순환 참조 방지
-    
-    # 관계 설정
-    user = relationship("User", back_populates="role_mappings")
-    role = relationship("UserRole", back_populates="role_mappings")
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    token_hash = Column(String(255), nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    is_revoked = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    revoked_at = Column(DateTime, nullable=True)
-    
-    # 관계 설정
-    user = relationship("User", back_populates="refresh_tokens")
 
 # LangFlow 테이블 모델
 class LangFlow(Base):
