@@ -10,7 +10,7 @@ import asyncio
 from typing import AsyncGenerator
 
 
-def create_openai_chunk(model_id: str, content: str, finish_reason: str = None) -> str:
+def create_openai_chunk(model_id: str, content: str, finish_reason: str = None, session_id: str = None) -> str:
     """
     OpenAI 스트리밍 형식에 맞는 청크(chunk)를 생성합니다.
     
@@ -36,6 +36,8 @@ def create_openai_chunk(model_id: str, content: str, finish_reason: str = None) 
             }
         ],
     }
+    if session_id:
+        response["session_id"] = session_id
     return f"data: {json.dumps(response)}\n\n"
 
 
