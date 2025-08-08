@@ -17,10 +17,17 @@ async def list_models():
     """
     all_models = model_registry.get_models()
     model_data = [
-        {"id": model.model_id, "object": "model", "created": 1686935002, "owned_by": model.provider}
+        {"id": model.model_id, "name": model.name, "object": "model", "created": 1686935002, "owned_by": model.provider}
         for model in all_models
     ]
     return JSONResponse(content={
         "object": "list",
         "data": model_data
     })
+
+@router.get("/v1/tags")
+async def list_tags():
+    """
+    OpenWebUI와의 호환성을 위해 /v1/models와 동일한 모델 목록을 반환합니다.
+    """
+    return await list_models()
