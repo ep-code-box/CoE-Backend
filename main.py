@@ -6,8 +6,8 @@ import logging
 import os
 
 # 분리된 모듈에서 필요한 클래스와 함수 가져오기
-from core.graph_builder import build_agent_graph
-from api.chat_api import router as chat_router, set_agent_info
+from core.graph_builder import build_agent_graph, build_aider_agent_graph
+from api.chat_api import router as chat_router, set_agent_info, set_aider_agent_info
 from api.flows_api import router as flows_router
 from api.models_api import router as models_router
 from api.health_api import router as health_router
@@ -29,6 +29,7 @@ else:
 
 # 그래프 구성 및 에이전트 생성
 agent, tool_descriptions, agent_model_id = build_agent_graph()
+aider_agent, aider_tool_descriptions, aider_agent_model_id = build_aider_agent_graph()
 
 # FastAPI 앱 생성 및 설정
 app = FastAPI(
@@ -52,7 +53,7 @@ app = FastAPI(
     
     ### 🔗 연동 서비스
     - **OpenWebUI**: `http://localhost:8000/v1` 설정으로 연동 가능
-    - **CoE-RagPipeline**: `http://localhost:8001` (Git 분석 서비스)
+    - **CoE-RagPipeline**: `http://localhost:8001` (Git 소스코드 및 RDB 스키마 분석 서비스)
     """,
     version="1.0.0",
     docs_url="/docs",
@@ -131,6 +132,7 @@ if len(root_logger.handlers) > 1:
 
 # 에이전트 정보 설정
 set_agent_info(agent, agent_model_id)
+set_aider_agent_info(aider_agent, aider_agent_model_id)
 
 # 라우터들 등록
 app.include_router(health_router)
