@@ -12,12 +12,14 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from core.schemas import ChatRequest, ChatResponse, OpenAIChatRequest
+from core.schemas import ChatRequest, ChatResponse, OpenAIChatRequest, AiderChatRequest
 from core.llm_client import client, get_client_for_model, get_model_info
 from core.database import get_db
 from services.chat_service import get_chat_service
 from utils.streaming_utils import agent_stream_generator, proxy_stream_generator
 from tools.utils import find_last_user_message
+import os # os 모듈 임포트
+import requests # requests 모듈 임포트
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +210,7 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
             )
         else:
             # 일반 JSON 응답 프록시
-            return response.model_dump()
+            return response
 
     except ValueError as e:
         # 모델 또는 프로바이더 관련 오류
@@ -272,16 +274,117 @@ def set_agent_info(agent, agent_model_id: str):
     """,
     response_description="채팅 완성 응답. 스트리밍 시 `text/event-stream`, 아닐 경우 `application/json`."
 )
-async def chat_completions(req: OpenAIChatRequest, request: Request, db: Session = Depends(get_db)):
-    """OpenAI API와 호환되는 채팅 엔드포인트 - CoE 에이전트 또는 외부 LLM 호출"""
-    logger.info(f"채팅 요청 수신: model={req.model}, messages={len(req.messages)}, session_id={req.session_id})")
+@router.post(
+    "/chat/completions/aider",
+    summary="AI 채팅 API (aider 전용, RAG 그룹 필터링)",
+    description="""
+    **aider와 같은 클라이언트를 위한 OpenAI Chat Completions API 호환 엔드포인트입니다.**
+    `group_name`을 사용하여 RAG(Retrieval-Augmented Generation) 검색을 특정 그룹의 데이터로 필터링합니다.
+
+    ### 🔄 세션 관리 (대화 연속성)
+    - **첫 요청**: `session_id` 없이 요청하면, 서버가 새로운 `session_id`를 생성하여 응답 본문에 포함해 반환합니다.
+    - **대화 이어가기**: 다음 요청부터는 이 `session_id`를 요청 본문에 포함시켜 보내야 이전 대화의 맥락을 유지할 수 있습니다.
+
+    ### 🤖 지원 모델
+    - `ax4`: sk Adot 4 모델 사용
+    - `gpt-4o-mini`, `gpt-4o`: OpenAI 모델 프록시
+    - 전체 목록은 `/v1/models` API를 통해 확인할 수 있습니다.
+
+    ### 📝 사용 예시 (cURL)
+    ```bash
+    # 1. 첫 번째 요청 (세션 시작, group_name 포함)
+    curl -X POST "http://localhost:8000/v1/chat/completions/aider" \
+      -H "Content-Type: application/json" \
+      -d '{ 
+        "model": "ax4",
+        "messages": [{"role": "user", "content": "payment 모듈의 코드 구조에 대해 알려줘"}],
+        "group_name": "swing"
+      }' # 응답에서 session_id 확인
+
+    # 2. 두 번째 요청 (대화 이어가기, group_name 포함)
+    curl -X POST "http://localhost:8000/v1/chat/completions/aider" \
+      -H "Content-Type: application/json" \
+      -d '{ 
+        "model": "ax4",
+        "session_id": "여기에_받은_세션ID를_입력하세요",
+        "messages": [{"role": "user", "content": "그것의 장점은 뭐야?"}],
+        "group_name": "swing"
+      }'
+    ```
+    """,
+    response_description="채팅 완성 응답. 스트리밍 시 `text/event-stream`, 아닐 경우 `application/json`."
+)
+async def chat_completions_aider(req: AiderChatRequest, request: Request, db: Session = Depends(get_db)):
+    """OpenAI API와 호환되는 채팅 엔드포인트 - CoE 에이전트 또는 외부 LLM 호출 (RAG 그룹 필터링)"""
+    logger.info(f"채팅 요청 수신 (aider 전용): model={req.model}, messages={len(req.messages)}, session_id={req.session_id}, group_name={req.group_name})")
+
+    # RAG 검색 로직
+    rag_context = ""
+    user_message_content = find_last_user_message(req.messages)
+
+    if req.group_name is None:
+        req.group_name = "swing"
+
+    if user_message_content and req.group_name:
+        # RAG 검색이 필요한 질의인지 판단 (간단한 키워드 매칭)
+        rag_keywords = ["코드", "분석", "정보", "구조", "기능", "어떻게", "설명", "예시", "모듈", "클래스", "함수", "파일"]
+        if any(keyword in user_message_content for keyword in rag_keywords):
+            try:
+                rag_pipeline_base_url = os.getenv("RAG_PIPELINE_BASE_URL", "http://localhost:8001")
+                rag_search_url = f"{rag_pipeline_base_url}/api/v1/search"
+
+                search_payload = {
+                    "query": user_message_content,
+                    "k": 3, # 상위 3개 문서 검색
+                    "filter_metadata": {"group_name": req.group_name}
+                }
+                
+                logger.info(f"RAG 검색 요청: {rag_search_url}, payload: {search_payload}")
+                rag_response = requests.post(rag_search_url, json=search_payload)
+                rag_response.raise_for_status()
+                
+                rag_results = rag_response.json()
+                
+                if rag_results:
+                    rag_context = "\n\n--- 관련 코드/문서 ---\n"
+                    for doc in rag_results:
+                        rag_context += f"파일: {doc['metadata'].get('file_path', 'N/A')}\n"
+                        rag_context += f"내용: {doc['content']}\n---\n"
+                    logger.info(f"RAG 검색 결과 {len(rag_results)}개 발견.")
+                else:
+                    logger.info("RAG 검색 결과 없음.")
+
+            except Exception as e:
+                logger.error(f"RAG 검색 중 오류 발생: {e}")
+                rag_context = f"RAG 검색 중 오류가 발생했습니다: {str(e)}"
     
+    # 원본 메시지에 RAG 컨텍스트 추가
+    messages_to_process = req.messages
+    if rag_context:
+        # 마지막 사용자 메시지에 컨텍스트 추가
+        for i in range(len(messages_to_process) - 1, -1, -1):
+            if messages_to_process[i].role == "user":
+                messages_to_process[i].content += rag_context
+                break
+        logger.info("RAG 컨텍스트가 사용자 메시지에 추가되었습니다.")
+    else:
+        # RAG 검색 결과가 없을 경우, 에이전트에게 안내 메시지 추가
+        logger.info("RAG 검색 결과가 없어 안내 메시지를 추가합니다.")
+        for i in range(len(messages_to_process) - 1, -1, -1):
+            if messages_to_process[i].role == "user":
+                messages_to_process[i].content += "\n\n[중요]: 저장된 문서에서 요청하신 내용에 대한 관련 정보를 찾을 수 없습니다. 이 질문에 대해 아는 바가 없다면 '관련 정보를 찾을 수 없습니다.'라고 답변하거나, 일반적인 지식으로 답변해주세요. 절대로 없는 정보를 지어내지 마세요."
+                break
+
+    # req 객체의 messages를 업데이트된 메시지로 교체
+    req.messages = messages_to_process
+
     # 1. CoE 에이전트 모델을 요청한 경우
     if req.model == _agent_model_id:
         return await handle_agent_request(req, _agent, _agent_model_id, request, db)
     # 2. 일반 LLM 모델을 요청한 경우 (프록시 역할)
     else:
         return await handle_llm_proxy_request(req)
+
 
 
 @router.post("/chat", response_model=ChatResponse, deprecated=True, summary="[Deprecated] Use /v1/chat/completions instead")
