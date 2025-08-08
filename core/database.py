@@ -160,6 +160,7 @@ class ConversationSummary(Base):
     summary_content = Column(Text, nullable=False)
     total_turns = Column(Integer, default=0)
     tools_used = Column(JSON, nullable=True)  # 사용된 도구들의 목록과 통계
+    group_name = Column(String(255), nullable=True) # group_name 컬럼 추가
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # 데이터베이스 테이블 생성

@@ -96,7 +96,7 @@ app.add_middleware(
 
 # 로깅 설정: 모든 로그를 하나의 핸들러로 처리
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     force=True  # 기존 설정 덮어쓰기
 )

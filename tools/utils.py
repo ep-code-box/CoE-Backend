@@ -30,8 +30,8 @@ def find_last_user_message(messages: list, role: str = "user") -> str | None:
         Content of the last message with the specified role, or None if not found
     """
     for msg in reversed(messages):
-        if msg.get("role") == role:
-            content = msg.get("content")
+        if msg.role == role:
+            content = msg.content
             return content if content is not None else ""
     return None
 

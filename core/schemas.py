@@ -32,6 +32,9 @@ class OpenAIChatRequest(BaseModel):
     session_id: Optional[str] = None
     # 다른 OpenAI 파라미터들도 필요에 따라 추가 가능
 
+class AiderChatRequest(OpenAIChatRequest):
+    group_name: Optional[str] = None # aider 전용 group_name 필드 추가
+
 
 class ChatResponse(BaseModel):
     messages: List[dict]
