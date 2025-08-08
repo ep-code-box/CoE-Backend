@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # 전역 변수로 에이전트 정보 저장
 _agent = None
 _agent_model_id = None
+_aider_agent = None
+_aider_agent_model_id = None
 
 router = APIRouter(
     tags=["🤖 AI Chat"],
@@ -101,8 +103,10 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
     state["_tool_context"] = tool_context
     
     try:
+        logger.info(f"Attempting to invoke agent with state: {state.keys()}")
         # 에이전트 실행
         result = await agent.ainvoke(state)
+        logger.info(f"Agent invocation successful. Result keys: {result.keys()}")
         final_message = find_last_user_message(result["messages"], role="assistant")
 
         # 응답 시간 계산
@@ -156,6 +160,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         # 오류 발생 시 로깅
         response_time_ms = int((time.time() - start_time) * 1000)
         error_message = str(e)
+        logger.error(f"에이전트 실행 중 예외 발생: {type(e).__name__}: {error_message}", exc_info=True)
         
         chat_service.log_api_call(
             session_id=current_session_id,
@@ -230,6 +235,19 @@ def set_agent_info(agent, agent_model_id: str):
     global _agent, _agent_model_id
     _agent = agent
     _agent_model_id = agent_model_id
+
+
+def set_aider_agent_info(agent, agent_model_id: str):
+    """
+    Aider 에이전트 정보를 전역 변수에 설정합니다.
+    
+    Args:
+        agent: 컴파일된 LangGraph 에이전트
+        agent_model_id: 에이전트 모델 ID
+    """
+    global _aider_agent, _aider_agent_model_id
+    _aider_agent = agent
+    _aider_agent_model_id = agent_model_id
 
 
 @router.post(
@@ -379,8 +397,8 @@ async def chat_completions_aider(req: AiderChatRequest, request: Request, db: Se
     req.messages = messages_to_process
 
     # 1. CoE 에이전트 모델을 요청한 경우
-    if req.model == _agent_model_id:
-        return await handle_agent_request(req, _agent, _agent_model_id, request, db)
+    if req.model == _aider_agent_model_id:
+        return await handle_agent_request(req, _aider_agent, _aider_agent_model_id, request, db)
     # 2. 일반 LLM 모델을 요청한 경우 (프록시 역할)
     else:
         return await handle_llm_proxy_request(req)
@@ -395,16 +413,11 @@ async def legacy_chat_endpoint(req: ChatRequest):
     return ChatResponse(messages=result["messages"])
 
 
-def create_chat_router(agent, agent_model_id: str):
+def create_chat_router():
     """
-    채팅 라우터를 생성합니다. 에이전트와 모델 ID를 주입받습니다.
+    채팅 라우터를 생성합니다.
     
-    Args:
-        agent: 컴파일된 LangGraph 에이전트
-        agent_model_id: 에이전트 모델 ID
-        
     Returns:
         APIRouter: 설정된 채팅 라우터
     """
-    set_agent_info(agent, agent_model_id)
     return router

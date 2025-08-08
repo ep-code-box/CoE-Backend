@@ -1,5 +1,6 @@
 import re
 import httpx
+from pydantic import BaseModel
 
 async def is_git_url_reachable(url: str) -> bool:
     """
@@ -23,16 +24,21 @@ def find_last_user_message(messages: list, role: str = "user") -> str | None:
     Finds and returns the content of the last message with the specified role.
     
     Args:
-        messages: List of message dictionaries
+        messages: List of message dictionaries or Pydantic Message objects
         role: Role to search for (default: "user")
         
     Returns:
         Content of the last message with the specified role, or None if not found
     """
     for msg in reversed(messages):
-        if msg.role == role:
-            content = msg.content
-            return content if content is not None else ""
+        if isinstance(msg, BaseModel): # Check if it's a Pydantic model (e.g., Message)
+            if msg.role == role:
+                content = msg.content
+                return content if content is not None else ""
+        elif isinstance(msg, dict): # Check if it's a dictionary
+            if msg.get('role') == role:
+                content = msg.get('content')
+                return content if content is not None else ""
     return None
 
 def extract_git_url(text: str) -> str | None:
