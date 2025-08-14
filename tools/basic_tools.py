@@ -1,32 +1,74 @@
-from typing import Dict, Any
-from core.schemas import ChatState
-from .utils import find_last_user_message
+"""
+기본적인 텍스트 처리 도구를 정의합니다.
+"""
+import json
+from typing import Dict, Any, List
 
-# 라우터 프롬프트에 사용될 도구 설명
-basic_tool_descriptions = [
-    {
-        "name": "tool1",
-        "description": "텍스트를 대문자로 변환합니다.",
-        "url_path": "/tools/tool1"
+# --- Tool Implementations ---
+
+def to_uppercase(text: str) -> str:
+    """
+    입력된 텍스트를 대문자로 변환합니다.
+    """
+    print(f"Executing to_uppercase with: {text}")
+    return text.upper()
+
+def reverse_string(text: str) -> str:
+    """
+    입력된 텍스트의 순서를 반대로 뒤집습니다.
+    """
+    print(f"Executing reverse_string with: {text}")
+    return text[::-1]
+
+# --- LLM에 제공될 Tool 명세 (OpenAI 호환) ---
+
+# 각 함수에 대한 JSON 스키마 정의
+to_uppercase_schema = {
+    "type": "function",
+    "function": {
+        "name": "to_uppercase",
+        "description": "입력된 텍스트를 대문자로 변환합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "대문자로 변환할 텍스트",
+                }
+            },
+            "required": ["text"],
+        },
     },
-    {
-        "name": "tool2",
-        "description": "텍스트를 역순으로 변환합니다.",
-        "url_path": "/tools/tool2"
-    }
+}
+
+reverse_string_schema = {
+    "type": "function",
+    "function": {
+        "name": "reverse_string",
+        "description": "입력된 텍스트의 순서를 반대로 뒤집습니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "순서를 뒤집을 텍스트",
+                },
+            },
+            "required": ["text"],
+        },
+    },
+}
+
+# --- Registry에 등록할 변수 ---
+
+# 서버에서 사용 가능한 Tool 목록
+available_tools: List[Dict[str, Any]] = [
+    to_uppercase_schema,
+    reverse_string_schema
 ]
 
-
-def tool1_node(state: ChatState) -> Dict[str, Any]:
-    """Converts the last user message to uppercase."""
-    user_content = find_last_user_message(state["messages"])
-    if user_content:
-        return {"messages": [{"role": "assistant", "content": user_content.upper()}]}
-    return {"messages": [{"role": "system", "content": "Tool1 Error: User message not found."}]}
-
-def tool2_node(state: ChatState) -> Dict[str, Any]:
-    """Reverses the last user message."""
-    user_content = find_last_user_message(state["messages"])
-    if user_content:
-        return {"messages": [{"role": "assistant", "content": user_content[::-1]}]}
-    return {"messages": [{"role": "system", "content": "Tool2 Error: User message not found."}]}
+# Tool 이름과 실제 함수 구현을 매핑
+tool_functions: Dict[str, callable] = {
+    "to_uppercase": to_uppercase,
+    "reverse_string": reverse_string,
+}

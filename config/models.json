@@ -11,13 +11,13 @@
     "name": "GPT-4o",
     "description": "OpenAI's most advanced, multimodal model.",
     "provider": "openai",
-    "is_default": false
+    "is_default": true
   },
   {
     "model_id": "ax4",
     "name": "AX4 Model",
     "description": "Default model provided by the API.",
     "provider": "sktax",
-    "is_default": true
+    "is_default": false
   }
 ]

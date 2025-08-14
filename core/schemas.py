@@ -1,28 +1,91 @@
-from typing import Annotated, List, Literal, Dict, Any, Optional
+from typing import Annotated, List, Literal, Dict, Any, Optional, Union
 from typing_extensions import TypedDict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-# LangGraph 상태 스키마
-class ChatState(TypedDict):
-    # messages는 항상 list로 초기화되도록 기본값 제공
-    messages: Annotated[list, lambda x, y: x + y]
-    # 라우팅 결정을 저장할 필드
-    next_node: str
-    # 조합 호출 예제를 위한 필드
-    original_input: str | None
-    api_data: dict | None
+# --- Modal Context Protocol State ---
+class AgentState(TypedDict):
+    """
+    Modal Context Protocol을 위한 새로운 에이전트 상태입니다.
+    OpenAI 함수 호출에 최적화된 구조를 가집니다.
+    """
+    
+    # 현재 에이전트의 작동 모드 (예: 'coding', 'chat', 'planning')
+    mode: str
+
+    # 마지막 사용자 입력을 저장합니다.
+    input: str
+    
+    # OpenAI 'messages'와 동일한 형식의 대화 기록입니다.
+    # Annotated를 사용하여 LangGraph에서 메시지가 덮어쓰여지지 않고 추가되도록 합니다.
+    history: Annotated[list, lambda x, y: x + y]
+
+    # 도구 실행 결과 등 임시 데이터를 저장하기 위한 공간입니다.
+    scratchpad: dict
+
+    # 세션 ID를 상태에 포함하여 로깅 및 추적에 사용합니다.
+    session_id: Optional[str]
+
+
+# --- OpenAI 호환 Tool Calling 스키마 ---
+
+class Function(BaseModel):
+    """Tool로 호출될 함수의 명세를 정의합니다."""
+    name: str
+    description: Optional[str] = None
+    parameters: Dict[str, Any]
+
+class Tool(BaseModel):
+    """LLM이 사용할 수 있는 Tool의 명세를 정의합니다."""
+    type: Literal["function"] = "function"
+    function: Function
+
+class ToolCallFunction(BaseModel):
+    """모델이 호출하려는 함수의 이름과 인자를 담습니다."""
+    name: str
+    arguments: str
+
+class ToolCall(BaseModel):
+    """모델의 Tool 호출 요청 정보를 담습니다."""
+    id: str
+    type: Literal["function"] = "function"
+    function: ToolCallFunction
+
+# --- 메시지 타입 스키마 ---
+
+class SystemMessage(BaseModel):
+    """시스템 메시지"""
+    role: Literal["system"]
+    content: str
+
+class UserMessage(BaseModel):
+    """사용자 메시지"""
+    role: Literal["user"]
+    content: str
+
+class AssistantMessage(BaseModel):
+    """어시스턴트 메시지. Tool 호출을 포함할 수 있습니다."""
+    role: Literal["assistant"]
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+
+class ToolMessage(BaseModel):
+    """Tool 실행 결과 메시지"""
+    role: Literal["tool"]
+    content: str
+    tool_call_id: str
+
+# 메시지 리스트에 포함될 수 있는 모든 메시지 타입의 Union
+# Pydantic이 JSON을 파싱할 때 'role' 필드를 보고 어떤 모델을 사용할지 결정합니다.
+Message = Union[SystemMessage, UserMessage, AssistantMessage, ToolMessage]
 
 
 # FastAPI 요청·응답 모델
-class Message(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
-
 class ChatRequest(BaseModel):
     messages: List[Message]
 
-# OpenWebUI 호환을 위한 요청 스키마
+
+# OpenAI 호환 채팅 요청 스키마
 class OpenAIChatRequest(BaseModel):
     model: str
     messages: List[Message]
@@ -30,7 +93,10 @@ class OpenAIChatRequest(BaseModel):
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
     session_id: Optional[str] = None
-    # 다른 OpenAI 파라미터들도 필요에 따라 추가 가능
+    # Tool Calling 관련 필드 추가
+    tools: Optional[List[Tool]] = None
+    tool_choice: Optional[Union[Literal["auto", "none"], Dict[str, Any]]] = None
+
 
 class AiderChatRequest(OpenAIChatRequest):
     group_name: Optional[str] = None # aider 전용 group_name 필드 추가

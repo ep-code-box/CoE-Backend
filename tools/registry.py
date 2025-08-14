@@ -1,59 +1,41 @@
-import os
-import importlib
-import inspect
+"""
+Modal Context Protocol에 따라 '모드'별로 도구를 등록하고 관리합니다.
+"""
 from typing import List, Dict, Callable, Any, Tuple
-from langchain.tools import BaseTool # BaseTool 임포트
 
-def load_all_tools() -> Tuple[Dict[str, Callable], List[Dict[str, Any]], List[Dict[str, Any]]]:
+# 다른 도구 파일에서 도구들을 가져옵니다.
+from . import openai_tools
+from . import basic_tools
+# from . import continue_tools # Remove this import
+
+# 도구 레지스트리
+# 각 모드는 사용 가능한 도구의 스키마 리스트와 실제 함수 매핑을 가집니다.
+TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {
+    "coding": {
+        "schemas": openai_tools.available_tools, # Now only openai_tools
+        "functions": openai_tools.tool_functions # Now only openai_tools
+    },
+    "basic": {
+        "schemas": basic_tools.available_tools,
+        "functions": basic_tools.tool_functions
+    }
+    # 향후 다른 모드 (예: 'planning', 'chat')를 여기에 추가할 수 있습니다.
+}
+
+def get_tools_for_mode(mode: str) -> Tuple[List[Dict[str, Any]], Dict[str, Callable]]:
     """
-    'tools' 디렉토리에서 모든 도구 노드, 설명, 엣지를 동적으로 로드합니다.
-    규칙:
-    - 노드 함수: 이름이 '_node'로 끝나야 합니다. (예: `api_call_node`)
-    - 설명 변수: 이름이 '_description' 또는 '_descriptions'로 끝나야 합니다.
-    - 엣지 변수: 이름이 '_edges'로 끝나야 합니다.
-    - LangChain BaseTool: BaseTool을 상속하는 클래스.
+    지정된 모드에 해당하는 도구 스키마와 함수를 반환합니다.
+    만약 모드가 없으면 빈 리스트와 딕셔너리를 반환합니다.
     """
-    all_nodes: Dict[str, Callable] = {}
-    all_tool_descriptions: List[Dict[str, Any]] = []
-    all_special_edges: List[Dict[str, Any]] = []
-    all_langchain_tools: List[BaseTool] = [] # LangChain BaseTool 인스턴스를 저장할 리스트
+    mode_config = TOOL_REGISTRY.get(mode, {})
+    return mode_config.get("schemas", []), mode_config.get("functions", {})
 
-    tools_dir = os.path.dirname(__file__)
-    # 현재 파일과 유틸리티 파일을 제외한 모든 파이썬 파일을 순회합니다.
-    for filename in os.listdir(tools_dir):
-        if filename.endswith('.py') and not filename.startswith('__') and filename not in ['utils.py', 'registry.py']:
-            module_name = f"tools.{filename[:-3]}"
-            module = importlib.import_module(module_name)
-            
-            for name, obj in inspect.getmembers(module):
-                # 1. 노드 함수 수집
-                if inspect.isfunction(obj) and name.endswith('_node'):
-                    # 함수 이름에서 '_node'를 제거하여 노드 이름으로 사용
-                    node_name = name[:-5]
-                    all_nodes[node_name] = obj
-                
-                # 2. 도구 설명 수집
-                elif name.endswith(('_description', '_descriptions')):
-                    descriptions = obj if isinstance(obj, list) else [obj]
-                    all_tool_descriptions.extend(descriptions)
-
-                # 3. 엣지 정보 수집
-                elif name.endswith('_edges'):
-                    edges = obj if isinstance(obj, list) else [obj]
-                    all_special_edges.extend(edges)
-                
-                # 4. LangChain BaseTool 클래스 인스턴스화 및 수집
-                elif inspect.isclass(obj) and issubclass(obj, BaseTool) and obj is not BaseTool:
-                    try:
-                        tool_instance = obj()
-                        all_langchain_tools.append(tool_instance)
-                        all_tool_descriptions.append({
-                            "name": tool_instance.name,
-                            "description": tool_instance.description,
-                            "args_schema": tool_instance.args_schema.schema() if tool_instance.args_schema else {}
-                        })
-                        logger.info(f"LangChain Tool loaded: {tool_instance.name}")
-                    except Exception as e:
-                        logger.warning(f"Failed to load LangChain Tool {name}: {e}")
-
-    return all_nodes, all_tool_descriptions, all_special_edges
+def get_all_tool_functions() -> Dict[str, Callable]:
+    """
+    모든 모드의 모든 도구 함수를 단일 딕셔너리로 결합하여 반환합니다.
+    이름이 중복될 경우 나중에 로드된 함수가 덮어씁니다.
+    """
+    all_functions = {}
+    for mode in TOOL_REGISTRY:
+        all_functions.update(TOOL_REGISTRY[mode].get("functions", {}))
+    return all_functions
