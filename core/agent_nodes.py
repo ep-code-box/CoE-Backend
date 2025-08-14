@@ -20,7 +20,7 @@ def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     mode = state.get("mode", "basic") # 기본 모드를 'basic'으로 설정
     history = state["history"]
     # TODO: 모델 ID를 설정에서 동적으로 가져오도록 수정 필요
-    model_id = "ax4"
+    model_id = state["model_id"]
 
     # 현재 모드에 맞는 도구 스키마를 가져옵니다.
     tool_schemas, _ = get_tools_for_mode(mode)
