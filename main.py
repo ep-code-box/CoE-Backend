@@ -16,7 +16,7 @@ from api.coding_assistant.code_api import router as coding_assistant_router
 from api.vector.vector_api import router as vector_router
 from api.embeddings_api import router as embeddings_router
 
-from api.tools.dynamic_tools_api import router as dynamic_tools_router
+# from api.tools.dynamic_tools_api import router as dynamic_tools_router
 from core.database import init_database
 
 
@@ -143,7 +143,7 @@ app.include_router(flows_router)
 app.include_router(coding_assistant_router)
 app.include_router(vector_router)
 app.include_router(embeddings_router)
-app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가
+# app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가
 app.include_router(chat_router)
 
 if __name__ == "__main__":
