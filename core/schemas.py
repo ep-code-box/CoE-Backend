@@ -25,6 +25,7 @@ class AgentState(TypedDict):
 
     # 세션 ID를 상태에 포함하여 로깅 및 추적에 사용합니다.
     session_id: Optional[str]
+    model_id: str
 
 
 # --- OpenAI 호환 Tool Calling 스키마 ---

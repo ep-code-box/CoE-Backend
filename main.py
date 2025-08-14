@@ -7,7 +7,7 @@ import os
 
 # 분리된 모듈에서 필요한 클래스와 함수 가져오기
 from core.graph_builder import build_agent_graph, build_aider_agent_graph
-from api.chat_api import router as chat_router, set_agent_info, set_aider_agent_info
+from api.chat_api import router as chat_router, set_agent_info
 from api.flows_api import router as flows_router
 from api.models_api import router as models_router
 from api.health_api import router as health_router
@@ -132,7 +132,7 @@ if len(root_logger.handlers) > 1:
 
 # 에이전트 정보 설정
 set_agent_info(agent, agent_model_id)
-set_aider_agent_info(aider_agent, aider_agent_model_id)
+
 
 # 라우터들 등록
 app.include_router(health_router)
