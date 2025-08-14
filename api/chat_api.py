@@ -197,6 +197,7 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
         raise HTTPException(status_code=500, detail=f"LLM API 호출 오류: {str(e)}")
 
 @router.post("/chat/completions")
+@router.post("/completions")
 async def chat_completions(req: OpenAIChatRequest, request: Request, db: Session = Depends(get_db)):
     """AI 에이전트 또는 일반 LLM 프록시를 통해 채팅 응답을 처리합니다."""
     
