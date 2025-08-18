@@ -3,8 +3,8 @@ uvicorn
 langgraph
 langchain
 langchain-openai
-langchain-chroma
-chromadb
+langchain-chroma==0.2.5
+chromadb==1.0.17
 openai
 requests
 pydantic
@@ -17,4 +17,3 @@ passlib[bcrypt]
 redis
 httpx
 aiohttp
-langflow

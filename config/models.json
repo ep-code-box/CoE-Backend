@@ -4,20 +4,50 @@
     "name": "GPT-4o Mini",
     "description": "OpenAI's fast and affordable flagship model.",
     "provider": "openai",
-    "is_default": false
+    "is_default": false,
+    "model_type": "chat"
   },
   {
     "model_id": "gpt-4o",
     "name": "GPT-4o",
     "description": "OpenAI's most advanced, multimodal model.",
     "provider": "openai",
-    "is_default": true
+    "is_default": true,
+    "model_type": "chat"
+  },
+  {
+    "model_id": "text-embedding-3-small",
+    "name": "OpenAI Embedding v3 Small",
+    "description": "OpenAI's small and efficient embedding model.",
+    "provider": "openai",
+    "is_default": false,
+    "model_type": "embedding"
   },
   {
     "model_id": "ax4",
     "name": "AX4 Model",
     "description": "Default model provided by the API.",
     "provider": "sktax",
-    "is_default": false
+    "is_default": false,
+    "model_type": "chat",
+    "api_base": "https://guest-api.sktax.chat/v1"
+  },
+  {
+    "model_id": "llava",
+    "name": "Llava",
+    "description": "Locally served model.",
+    "provider": "local",
+    "is_default": false,
+    "api_base": "http://host.docker.internal:11434/v1",
+    "model_type": "chat"
+  },
+  {
+    "model_id": "bge-large-en-v1.5",
+    "name": "BGE Large (Local)",
+    "description": "Locally served embedding model.",
+    "provider": "local",
+    "is_default": false,
+    "api_base": "http://host.docker.internal:11436/v1",
+    "model_type": "embedding"
   }
 ]
