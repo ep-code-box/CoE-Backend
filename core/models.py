@@ -11,6 +11,8 @@ class ModelInfo(BaseModel):
     description: str
     provider: str
     is_default: bool = False
+    api_base: Optional[str] = None
+    model_type: Optional[str] = "chat"
 
 class ModelRegistry:
     """
