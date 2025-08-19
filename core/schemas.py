@@ -1,6 +1,8 @@
 from typing import Annotated, List, Literal, Dict, Any, Optional, Union
 from typing_extensions import TypedDict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
+from datetime import datetime
+import json
 
 
 # --- Modal Context Protocol State ---
@@ -155,8 +157,65 @@ class ExecuteFlowResponse(BaseModel):
     error: Optional[str] = None
     execution_time: Optional[float] = None
 
+class ExposeFlowApiRequest(BaseModel):
+    endpoint: str
+    description: Optional[str] = None
+    flow_body: LangFlowJSON
+    flow_id: Optional[str] = None # Assuming langFlow provides this
+
+
+# --- Dynamic Flow Schemas ---
+
+class FlowCreate(BaseModel):
+    endpoint: str = Field(..., description="API endpoint path for the flow. Must be unique.")
+    description: Optional[str] = Field(None, description="A description for the flow.")
+    flow_body: LangFlowJSON = Field(..., description="The JSON object defining the LangFlow.")
+    flow_id: str = Field(..., description="The unique ID for the flow, typically from LangFlow itself.")
+
+class FlowRead(BaseModel):
+    id: int
+    endpoint: str
+    description: Optional[str]
+    flow_body: LangFlowJSON
+    flow_id: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+    @root_validator(pre=True)
+    def map_db_to_api_fields(cls, values):
+        # When loading from the DB model, 'name' and 'flow_data' will be present.
+        if 'name' in values:
+            values['endpoint'] = values.pop('name')
+        if 'flow_data' in values:
+            # flow_data is a JSON string in the DB, parse it into a dict for the LangFlowJSON model.
+            flow_data_str = values.pop('flow_data')
+            if isinstance(flow_data_str, str):
+                 values['flow_body'] = json.loads(flow_data_str)
+            else: # Already parsed
+                 values['flow_body'] = flow_data_str
+        return values
 
 
 class ErrorResponse(BaseModel):
     detail: str
     error_code: Optional[str] = None
+
+class HealthCheckResponse(BaseModel):
+    status: str
+    version: str
+    timestamp: str
+    dependencies: Dict[str, str]
+
+class ModelDetail(BaseModel):
+    id: str
+    object: str = "model"
+    created: int
+    owned_by: str = "user"
+
+class ModelList(BaseModel):
+    object: str = "list"
+    data: List[ModelDetail]

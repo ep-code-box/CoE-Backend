@@ -10,7 +10,7 @@ class LangFlowService:
     """LangFlow 데이터베이스 서비스 클래스"""
     
     @staticmethod
-    def create_flow(db: Session, name: str, flow_data: Dict[str, Any], description: Optional[str] = None) -> LangFlow:
+    def create_flow(db: Session, name: str, flow_data: Dict[str, Any], flow_id: str, description: Optional[str] = None) -> LangFlow:
         """새로운 LangFlow를 생성합니다."""
         try:
             # JSON 데이터를 문자열로 변환
@@ -19,7 +19,8 @@ class LangFlowService:
             db_flow = LangFlow(
                 name=name,
                 description=description,
-                flow_data=flow_data_str
+                flow_data=flow_data_str,
+                flow_id=flow_id
             )
             
             db.add(db_flow)
@@ -76,7 +77,7 @@ class LangFlowService:
     
     @staticmethod
     def delete_flow(db: Session, name: str) -> bool:
-        """LangFlow를 삭제합니다 (소프트 삭제)."""
+        """LangFlow를 이름으로 삭제합니다 (소프트 삭제)."""
         try:
             db_flow = LangFlowService.get_flow_by_name(db, name)
             if not db_flow:
@@ -90,6 +91,23 @@ class LangFlowService:
         except Exception as e:
             db.rollback()
             raise Exception(f"Failed to delete flow: {str(e)}")
+
+    @staticmethod
+    def delete_flow_by_id(db: Session, flow_id: int) -> Optional[LangFlow]:
+        """LangFlow를 ID로 삭제합니다 (소프트 삭제)."""
+        try:
+            db_flow = LangFlowService.get_flow_by_id(db, flow_id)
+            if not db_flow:
+                return None
+            
+            db_flow.is_active = False
+            db_flow.updated_at = datetime.utcnow()
+            
+            db.commit()
+            return db_flow
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Failed to delete flow by ID: {str(e)}")
     
     @staticmethod
     def get_flow_data_as_dict(flow: LangFlow) -> Dict[str, Any]:

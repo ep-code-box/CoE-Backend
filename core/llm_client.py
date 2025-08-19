@@ -2,7 +2,7 @@ import os
 from typing import Dict, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from core.models import model_registry, ModelInfo # ModelRegistry를 가져옵니다.
 
 # .env 파일에서 환경 변수 로드
@@ -13,9 +13,6 @@ load_dotenv()
 default_model = model_registry.get_default_model()
 if not default_model:
     raise ValueError("기본 모델을 찾을 수 없습니다. models.json 파일을 확인하세요.")
-
-# 환경 변수에서 임베딩 관련 설정 가져오기
-EMBEDDING_MODEL_NAME = os.getenv("OPENAI_EMBEDDING_MODEL_NAME", "text-embedding-3-small")
 
 # --- 프로바이더별 클라이언트 인스턴스 ---
 # 각 프로바이더별로 별도의 클라이언트를 생성하여 올바른 API 키와 엔드포인트를 사용합니다.
@@ -79,28 +76,4 @@ langchain_client = ChatOpenAI(
     client=client,  # 기본 클라이언트 인스턴스를 전달
 )
 
-# 3) LangChain 연동을 위한 OpenAIEmbeddings Client 설정
-# 환경 변수 또는 기본 설정에 따라 임베딩 클라이언트를 초기화합니다.
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")
-
-def get_embedding_client(model_id: str = EMBEDDING_MODEL_NAME) -> OpenAIEmbeddings:
-    """모델 ID에 해당하는 임베딩 클라이언트를 반환합니다. 지정하지 않으면 기본 모델을 사용합니다."""
-    model_info = model_registry.get_model(model_id)
-    if not model_info:
-        raise ValueError(f"지원하지 않는 모델입니다: {model_id}")
-
-    if model_info.model_type != "embedding":
-        raise ValueError(f"'{model_id}' 모델은 임베딩 모델이 아닙니다.")
-
-    client_for_embedding = get_client_for_model(model_id)
-
-    return OpenAIEmbeddings(
-        model=model_id,
-        client=client_for_embedding
-    )
-
-# 기본 임베딩 클라이언트를 생성합니다.
-embeddings_client = get_embedding_client()
-
 print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.")
-print(f"✅ Initialized API-based Embedding Model ({EMBEDDING_MODEL_NAME}).")

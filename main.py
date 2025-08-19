@@ -13,11 +13,11 @@ from api.models_api import router as models_router
 from api.health_api import router as health_router
 
 from api.coding_assistant.code_api import router as coding_assistant_router
-from api.vector.vector_api import router as vector_router
 from api.embeddings_api import router as embeddings_router
 
 # from api.tools.dynamic_tools_api import router as dynamic_tools_router
 from core.database import init_database
+from core.lifespan import lifespan
 
 
 # 데이터베이스 초기화
@@ -42,7 +42,6 @@ app = FastAPI(
     ### 🚀 주요 기능
     - **AI 에이전트 채팅**: OpenAI 호환 채팅 API (`/v1/chat/completions`)
     - **코딩 어시스턴트**: 코드 생성, 분석, 리팩토링, 리뷰 (`/api/coding-assistant/`)
-    - **벡터 검색**: ChromaDB 기반 벡터 검색 및 RAG (`/vector/`)
     - **LangFlow 연동**: 워크플로우 관리 (`/flows/`)
     - **동적 도구**: 자동 도구 등록 및 관리 (`/tools/`)
     
@@ -59,6 +58,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
     swagger_ui_parameters={
         "defaultModelsExpandDepth": 2,
         "defaultModelExpandDepth": 2,
@@ -141,7 +141,6 @@ app.include_router(health_router)
 app.include_router(models_router)
 app.include_router(flows_router)
 app.include_router(coding_assistant_router)
-app.include_router(vector_router)
 app.include_router(embeddings_router)
 # app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가
 app.include_router(chat_router)

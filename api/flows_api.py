@@ -1,215 +1,71 @@
-"""
-LangFlow 관련 API 엔드포인트들을 담당하는 모듈입니다.
-"""
-
-import json
-import os
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from core.schemas import SaveFlowRequest, FlowListResponse, ExecuteFlowRequest, ExecuteFlowResponse
+from typing import List
+
+from core import schemas
 from core.database import get_db
-from services.db_service import LangFlowService
-from services.langflow.langflow_service import langflow_service
+from services import flow_service
+from services.flow_router_service import FlowRouterService
 
-router = APIRouter()
+# Dependency to get the router service from the app state
+def get_flow_router_service(request: Request) -> FlowRouterService:
+    return request.app.state.flow_router_service
 
+router = APIRouter(
+    prefix="/flows",
+    tags=["Flows Management"],
+)
 
-@router.post("/flows/save")
-async def save_flow(req: SaveFlowRequest, db: Session = Depends(get_db)):
-    """LangFlow JSON을 데이터베이스에 저장합니다."""
-    try:
-        # 데이터베이스에 저장
-        flow = LangFlowService.create_flow(
-            db=db,
-            name=req.name,
-            description=req.description,
-            flow_data=req.flow_data.model_dump()
+@router.post("/", response_model=schemas.FlowRead, status_code=status.HTTP_201_CREATED)
+def create_new_flow(
+    flow: schemas.FlowCreate, 
+    db: Session = Depends(get_db),
+    router_service: FlowRouterService = Depends(get_flow_router_service)
+):
+    """
+    Register a new LangFlow, save it to the database, and dynamically expose its endpoint.
+    """
+    db_flow = flow_db_service.get_flow_by_endpoint(db, endpoint=flow.endpoint)
+    if db_flow:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Endpoint '{flow.endpoint}' already registered."
+        )
+    
+    return flow_service.create_and_register_flow(
+        db=db, flow_create_schema=flow, router_service=router_service
+    )
+
+@router.get("/", response_model=List[schemas.FlowRead])
+def read_all_flows(
+    skip: int = 0, 
+    limit: int = 100, 
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all registered LangFlows from the database.
+    """
+    # This endpoint doesn't need to change, it just reads from the DB.
+    flows = flow_db_service.get_flows(db, skip=skip, limit=limit)
+    return flows
+
+@router.delete("/{flow_id}", response_model=schemas.FlowRead)
+def remove_flow(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    router_service: FlowRouterService = Depends(get_flow_router_service)
+):
+    """
+    Delete a registered LangFlow by its ID and deactivate its dynamic endpoint.
+    """
+    deleted_flow = flow_service.delete_and_unregister_flow(
+        db=db, flow_id=flow_id, router_service=router_service
+    )
+    
+    if deleted_flow is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Flow with ID {flow_id} not found."
         )
         
-        # 백워드 호환성을 위해 파일로도 저장 (선택적)
-        flows_dir = "flows"
-        os.makedirs(flows_dir, exist_ok=True)
-        
-        safe_name = "".join(c for c in req.name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        filename = f"{safe_name}.json"
-        filepath = os.path.join(flows_dir, filename)
-        
-        flow_data = req.flow_data.model_dump()
-        flow_data["saved_name"] = req.name
-        if req.description:
-            flow_data["description"] = req.description
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(flow_data, f, indent=2, ensure_ascii=False)
-        
-        return {
-            "message": f"Flow '{req.name}' saved successfully to database",
-            "id": flow.id,
-            "filename": filename,
-            "created_at": flow.created_at.isoformat()
-        }
-    
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save flow: {str(e)}")
-
-
-@router.get("/flows/list", response_model=FlowListResponse)
-async def list_flows(db: Session = Depends(get_db)):
-    """저장된 LangFlow 목록을 데이터베이스에서 반환합니다."""
-    try:
-        # 데이터베이스에서 조회
-        db_flows = LangFlowService.get_all_flows(db)
-        
-        flows = []
-        for flow in db_flows:
-            flows.append({
-                "name": flow.name,
-                "id": str(flow.id),
-                "description": flow.description or "",
-                "filename": f"{flow.name}.json",
-                "created_at": flow.created_at.isoformat(),
-                "updated_at": flow.updated_at.isoformat()
-            })
-        
-        return FlowListResponse(flows=flows)
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list flows: {str(e)}")
-
-
-@router.get("/flows/{flow_name}")
-async def get_flow(flow_name: str, db: Session = Depends(get_db)):
-    """특정 LangFlow JSON을 데이터베이스에서 반환합니다."""
-    try:
-        # 먼저 이름으로 찾기
-        flow = LangFlowService.get_flow_by_name(db, flow_name)
-        
-        # 이름으로 찾지 못하면 ID로 찾기 (숫자인 경우)
-        if not flow and flow_name.isdigit():
-            flow = LangFlowService.get_flow_by_id(db, int(flow_name))
-        
-        if not flow:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
-        
-        # JSON 데이터 파싱
-        flow_data = json.loads(flow.flow_data)
-        
-        # 메타데이터 추가
-        flow_data.update({
-            "id": flow.id,
-            "saved_name": flow.name,
-            "description": flow.description,
-            "created_at": flow.created_at.isoformat(),
-            "updated_at": flow.updated_at.isoformat(),
-            "is_active": flow.is_active
-        })
-        
-        return flow_data
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get flow: {str(e)}")
-
-
-@router.delete("/flows/{flow_name}")
-async def delete_flow(flow_name: str, db: Session = Depends(get_db)):
-    """저장된 LangFlow를 데이터베이스에서 삭제합니다."""
-    try:
-        # 데이터베이스에서 삭제
-        success = LangFlowService.delete_flow(db, flow_name)
-        
-        if not success:
-            # ID로도 시도해보기 (숫자인 경우)
-            if flow_name.isdigit():
-                flow = LangFlowService.get_flow_by_id(db, int(flow_name))
-                if flow:
-                    success = LangFlowService.delete_flow(db, flow.name)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_name}' not found")
-        
-        # 백워드 호환성을 위해 파일도 삭제 시도 (에러 무시)
-        try:
-            flows_dir = "flows"
-            safe_name = "".join(c for c in flow_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            filename = f"{safe_name}.json"
-            filepath = os.path.join(flows_dir, filename)
-            if os.path.exists(filepath):
-                os.remove(filepath)
-        except:
-            pass  # 파일 삭제 실패는 무시
-        
-        return {"message": f"Flow '{flow_name}' deleted successfully from database"}
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete flow: {str(e)}")
-
-
-@router.post("/flows/execute", response_model=ExecuteFlowResponse)
-async def execute_flow(req: ExecuteFlowRequest):
-    """
-    저장된 LangFlow를 실제 LangFlow 엔진으로 실행합니다.
-    
-    Args:
-        req: 실행 요청 (플로우 이름, 입력 데이터, 조정 파라미터 등)
-        
-    Returns:
-        ExecuteFlowResponse: 실행 결과
-    """
-    try:
-        # LangFlow URL이 요청에 포함된 경우 임시로 사용
-        if req.langflow_url:
-            from services.langflow.langflow_service import LangFlowExecutionService
-            temp_service = LangFlowExecutionService(req.langflow_url)
-            result = await temp_service.execute_flow_by_name(
-                flow_name=req.flow_name,
-                inputs=req.inputs,
-                tweaks=req.tweaks
-            )
-        else:
-            # 기본 서비스 사용
-            result = await langflow_service.execute_flow_by_name(
-                flow_name=req.flow_name,
-                inputs=req.inputs,
-                tweaks=req.tweaks
-            )
-        
-        return result
-        
-    except Exception as e:
-        return ExecuteFlowResponse(
-            success=False,
-            error=f"Failed to execute flow: {str(e)}"
-        )
-
-
-@router.get("/flows/health")
-async def check_langflow_health():
-    """
-    LangFlow 서버 상태를 확인합니다.
-    
-    Returns:
-        dict: 서버 상태 정보
-    """
-    try:
-        is_healthy = await langflow_service.check_langflow_health()
-        langflow_url = langflow_service.get_langflow_url()
-        
-        return {
-            "langflow_url": langflow_url,
-            "is_healthy": is_healthy,
-            "status": "connected" if is_healthy else "disconnected"
-        }
-        
-    except Exception as e:
-        return {
-            "langflow_url": langflow_service.get_langflow_url(),
-            "is_healthy": False,
-            "status": "error",
-            "error": str(e)
-        }
+    return deleted_flow

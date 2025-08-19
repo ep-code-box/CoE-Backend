@@ -2,6 +2,7 @@ import requests
 import json
 import re # New import
 import httpx # New import
+import os
 from typing import Dict, Any, Optional
 from core.schemas import ChatState
 from langchain_core.prompts import ChatPromptTemplate
@@ -18,7 +19,7 @@ def extract_git_url(text: str) -> Optional[str]:
 
 async def trigger_rag_analysis(git_url: str) -> Optional[str]:
     """CoE-RagPipeline에 Git 레포지토리 분석을 요청합니다."""
-    rag_pipeline_url = "http://127.0.0.1:8001" # CoE-RagPipeline URL
+    rag_pipeline_url = os.getenv("RAG_PIPELINE_URL", "http://localhost:8001") # CoE-RagPipeline URL
     analyze_url = f"{rag_pipeline_url}/api/v1/analyze"
     
     try:
@@ -82,7 +83,7 @@ def get_rag_analysis_result(analysis_id: Optional[str] = None) -> Optional[Dict[
     """CoE-RagPipeline에서 분석 결과를 가져옵니다."""
     try:
         # CoE-RagPipeline 서버 URL (기본값)
-        rag_pipeline_url = "http://127.0.0.1:8001"
+        rag_pipeline_url = os.getenv("RAG_PIPELINE_URL", "http://localhost:8001")
         
         if analysis_id:
             # 특정 분석 결과 조회
@@ -112,7 +113,7 @@ def get_rag_analysis_result(analysis_id: Optional[str] = None) -> Optional[Dict[
 def search_rag_context(query: str, analysis_id: str, k: int = 5) -> str:
     """CoE-RagPipeline의 검색 API를 사용하여 관련 컨텍스트를 가져옵니다."""
     try:
-        rag_pipeline_url = "http://127.0.0.1:8001"
+        rag_pipeline_url = os.getenv("RAG_PIPELINE_URL", "http://localhost:8001")
         search_url = f"{rag_pipeline_url}/api/v1/search"
         params = {"query": query, "k": k}
         # analysis_id를 메타데이터 필터로 사용하여 검색 범위를 제한
