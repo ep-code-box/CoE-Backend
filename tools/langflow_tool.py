@@ -80,7 +80,7 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
                 asyncio.set_event_loop(loop)
             
             execution_result = loop.run_until_complete(
-                langflow_service.execute_flow_by_name(flow_name, inputs)
+                langflow_service.execute_flow(flow_data, inputs)
             )
             
             if execution_result.success:

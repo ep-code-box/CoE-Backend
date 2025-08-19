@@ -1,107 +1,73 @@
 """
 LangFlow 실행 서비스
-외부 LangFlow 서버의 API를 호출하여 플로우를 실행합니다.
+내부 LangFlow 라이브러리를 사용하여 플로우를 직접 실행합니다.
 """
 
-import os
 import time
-import httpx
 from typing import Dict, Any, Optional
 from core.schemas import ExecuteFlowResponse
-from services.db_service import LangFlowService, SessionLocal
+# from langflow.load import run_flow_from_json # 예상되는 langflow 임포트
+from langflow.processing.process import process_graph_cached
 
 class LangFlowExecutionService:
-    """LangFlow 실행을 담당하는 서비스 클래스 (API 기반)"""
-    
-    def __init__(self, langflow_url: str = None, api_key: str = None):
+    """LangFlow 실행을 담당하는 서비스 클래스 (라이브러리 기반)"""
+
+    def __init__(self):
         """
-        LangFlow 서비스 초기화
+        LangFlow 서비스 초기화 (내부 실행)
         """
-        self.base_url = langflow_url or os.getenv("LANGFLOW_URL", "http://localhost:7860")
-        self.api_key = api_key or os.getenv("LANGFLOW_API_KEY")
-        self.headers = {"x-api-key": self.api_key} if self.api_key else {}
-        
+        # 라이브러리 기반 실행에서는 URL이나 API 키가 필요 없습니다.
+        pass
+
     async def execute_flow(
-        self, 
-        flow_id_or_name: str, 
-        inputs: Optional[Dict[str, Any]] = None,
-        tweaks: Optional[Dict[str, Any]] = None
+        self,
+        flow_data: Dict[str, Any],
+        inputs: Optional[Dict[str, Any]] = None
     ) -> ExecuteFlowResponse:
         """
-        지정된 ID 또는 이름으로 LangFlow를 API를 통해 실행합니다.
-        
+        주어진 flow_data(JSON)를 LangFlow 라이브러리를 통해 직접 실행합니다.
+
         Args:
-            flow_id_or_name: 실행할 플로우의 ID 또는 이름
+            flow_data: 실행할 플로우의 JSON 데이터
             inputs: 플로우 입력 데이터
-            tweaks: 플로우 파라미터 조정
-            
+
         Returns:
             ExecuteFlowResponse: 실행 결과
         """
         start_time = time.time()
-        request_body = {
-            "input_value": inputs.get("input_value", ""),
-            "tweaks": tweaks or {}
-        }
         
-        # LangFlow는 chat_history, session_id 등을 지원합니다.
-        # 필요에 따라 inputs에서 다른 키들을 추출하여 request_body에 추가할 수 있습니다.
-        if inputs:
-            for key in ["chat_history", "session_id"]:
-                if key in inputs:
-                    request_body[key] = inputs[key]
-
-        endpoint = f"/api/v1/run/{flow_id_or_name}"
-        url = f"{self.base_url.rstrip('/')}{endpoint}"
+        if not inputs:
+            inputs = {}
 
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    headers=self.headers,
-                    json=request_body,
-                    timeout=300  # 5분 타임아웃
-                )
-                response.raise_for_status()  # 오류 발생 시 예외 처리
-                
-                result_data = response.json()
-                # LangFlow의 실제 응답 구조에 따라 결과 파싱이 필요할 수 있습니다.
-                # 예: result_data.get('outputs', [{}])[0].get('results', {})
-                outputs = result_data.get("outputs", [{}])[0]
+            # langflow 라이브러리를 사용하여 그래프 데이터 처리
+            # 실제 라이브러리 함수는 `process_graph_cached` 또는 유사한 형태일 수 있습니다.
+            result_data = process_graph_cached(
+                data_graph=flow_data,
+                inputs=inputs
+            )
+            
+            # 실행 결과에서 실제 output 추출
+            # LangFlow의 결과 구조에 따라 파싱 방식이 달라질 수 있습니다.
+            outputs = {}
+            if isinstance(result_data, dict) and "outputs" in result_data:
+                 outputs = result_data.get("outputs", [{}])[0]
+            elif hasattr(result_data, 'outputs'):
+                 outputs = result_data.outputs[0]
 
-                return ExecuteFlowResponse(
-                    success=True,
-                    session_id=result_data.get("session_id", f"api-{int(time.time())}"),
-                    outputs=outputs,
-                    execution_time=time.time() - start_time
-                )
 
-        except httpx.HTTPStatusError as e:
-            error_detail = f"HTTP error occurred: {e.response.status_code} - {e.response.text}"
-            return ExecuteFlowResponse(success=False, error=error_detail, execution_time=time.time() - start_time)
+            return ExecuteFlowResponse(
+                success=True,
+                session_id=f"internal-{int(time.time())}",
+                outputs=outputs,
+                execution_time=time.time() - start_time
+            )
+
         except Exception as e:
-            return ExecuteFlowResponse(success=False, error=str(e), execution_time=time.time() - start_time)
-
-    # execute_flow_by_name 및 execute_flow_by_id는 execute_flow를 호출하도록 단순화합니다.
-    async def execute_flow_by_name(self, *args, **kwargs) -> ExecuteFlowResponse:
-        return await self.execute_flow(*args, **kwargs)
-
-    async def execute_flow_by_id(self, *args, **kwargs) -> ExecuteFlowResponse:
-        return await self.execute_flow(*args, **kwargs)
-
-    async def check_langflow_health(self) -> bool:
-        """LangFlow 서버의 상태를 확인합니다."""
-        try:
-            async with httpx.AsyncClient() as client:
-                # LangFlow는 별도의 health 엔드포인트가 없을 수 있으므로, 기본 URL로 확인
-                response = await client.get(self.base_url, timeout=10)
-                return response.status_code == 200
-        except Exception:
-            return False
-
-    def get_langflow_url(self) -> str:
-        """현재 설정된 LangFlow URL을 반환합니다."""
-        return self.base_url
+            # 오류 발생 시, 스택 트레이스를 포함하여 로깅하는 것이 좋습니다.
+            import traceback
+            error_detail = f"LangFlow internal execution error: {str(e)}\n{traceback.format_exc()}"
+            return ExecuteFlowResponse(success=False, error=error_detail, execution_time=time.time() - start_time)
 
 # 전역 서비스 인스턴스
 langflow_service = LangFlowExecutionService()

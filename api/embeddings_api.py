@@ -3,6 +3,7 @@ from typing import List, Union, Optional
 from pydantic import BaseModel
 import os
 import logging
+import httpx # Import httpx for making async HTTP requests
 
 logger = logging.getLogger(__name__)
 
@@ -31,45 +32,34 @@ class EmbeddingResponse(BaseModel):
     model: str
     usage: EmbeddingUsage
 
+# Get RAG Pipeline URL from environment variable
+RAG_PIPELINE_URL = os.getenv("RAG_PIPELINE_URL", "http://localhost:8001") # Default to localhost:8001
+
 @router.post("/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(request: EmbeddingRequest):
-    """OpenAI 호환 임베딩 API 엔드포인트"""
+    """Delegates embedding requests to CoE-RagPipeline."""
     try:
-        # 입력 텍스트 정규화
-        if isinstance(request.input, str):
-            texts = [request.input]
-        else:
-            texts = request.input
-        
-        # OpenAI 임베딩 서비스 사용
-        from services.vector.embedding_service import EmbeddingService
-        
-        embedding_service = EmbeddingService()
-        embeddings = embedding_service.create_embeddings(texts, model=request.model)
-        
-        # OpenAI 호환 형식으로 변환
-        embedding_data = []
-        for i, embedding in enumerate(embeddings):
-            embedding_data.append(EmbeddingData(
-                embedding=embedding,
-                index=i
-            ))
-        
-        # 토큰 수 계산 (간단한 추정)
-        total_tokens = sum(len(text.split()) for text in texts)
-        
-        return EmbeddingResponse(
-            data=embedding_data,
-            model=request.model,
-            usage=EmbeddingUsage(
-                prompt_tokens=total_tokens,
-                total_tokens=total_tokens
-            )
+        rag_embeddings_url = f"{RAG_PIPELINE_URL}/api/v1/embeddings" # Corrected endpoint
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(rag_embeddings_url, json=request.model_dump())
+            response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+
+        rag_response_data = response.json()
+
+        # Validate and return the response from RAG Pipeline
+        # Assuming RAG Pipeline returns a compatible OpenAI-like embedding response
+        return EmbeddingResponse(**rag_response_data)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Error from RAG Pipeline embedding service: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Error from RAG Pipeline embedding service: {e.response.text}"
         )
-        
     except Exception as e:
-        logger.error(f"OpenAI 임베딩 생성 중 오류 발생: {e}")
+        logger.error(f"Failed to delegate embedding request to RAG Pipeline: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"OpenAI 임베딩 생성 중 오류가 발생했습니다: {str(e)}"
+            detail=f"Failed to delegate embedding request to RAG Pipeline: {str(e)}"
         )

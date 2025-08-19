@@ -108,6 +108,7 @@ class LangFlow(Base):
     __tablename__ = "langflows"
     
     id = Column(Integer, primary_key=True, index=True)
+    flow_id = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(255), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
     flow_data = Column(Text, nullable=False)  # JSON 데이터를 문자열로 저장
