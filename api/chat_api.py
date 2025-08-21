@@ -5,6 +5,7 @@
 import time
 import uuid
 import logging
+import httpx
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -48,7 +49,7 @@ async def _get_or_create_session_and_history(
 
     raw_history = chat_service.get_chat_history(current_session_id, limit=20)
     history_dicts = []
-    if not raw_history and not req.messages:
+    if not req.messages:
         history_dicts.append({"role": "system", "content": "You are a helpful assistant."})
 
     for msg in raw_history:
@@ -112,10 +113,11 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         scratchpad={},
         session_id=current_session_id,
         model_id=req.model,
+        group_name=req.group_name,
     )
 
     try:
-        logger.info(f"Invoking new agent with state: mode='{agent_state['mode']}', history_len={len(agent_state['history'])}")
+        logger.info(f"Invoking new agent with state: mode='{agent_state['mode']}', history_len={len(agent_state['history'])} ")
         result_state = await agent.ainvoke(agent_state)
         logger.info("New agent invocation successful.")
 
@@ -196,6 +198,132 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
     except Exception as e:
         logger.error(f"LLM API 호출 오류: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"LLM API 호출 오류: {str(e)}")
+    
+# Define RAG service URL (should be configurable)
+RAG_SERVICE_URL = "http://localhost:8001/api/v1/search"
+# Add a configurable threshold (should ideally come from settings)
+RAG_SCORE_THRESHOLD = 0.7 # Example threshold, adjust as needed
+
+async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Session, agent_info: dict):
+    """
+    group_name이 있는 경우 RAG 요청을 처리합니다.
+    """
+    start_time = time.time()
+    chat_service = get_chat_service(db)
+
+    session, current_session_id, history_dicts, current_user_content = await _get_or_create_session_and_history(
+        req, chat_service, request
+    )
+
+    user_query = current_user_content
+
+    retrieved_documents = []
+    try:
+        async with httpx.AsyncClient() as client:
+            rag_request_payload = {
+                "query": user_query,
+                "k": 10, # Retrieve more documents initially to allow for filtering
+                "group_name": req.group_name
+            }
+            logger.info(f"Calling RAG service at {RAG_SERVICE_URL} with payload: {rag_request_payload}")
+            response = await client.post(RAG_SERVICE_URL, json=rag_request_payload, timeout=30.0)
+            response.raise_for_status() # Raise an exception for 4xx or 5xx responses
+            retrieved_documents = response.json()
+            logger.info(f"Received {len(retrieved_documents)} documents from RAG service.")
+    except httpx.RequestError as e:
+        error_message = f"RAG 서비스 호출 실패: {e}"
+        logger.error(error_message, exc_info=True)
+        await _log_and_save_messages(
+            chat_service, current_session_id, current_user_content,
+            "", session, start_time, req, 500, error_message
+        )
+        raise HTTPException(status_code=500, detail=error_message)
+    except httpx.HTTPStatusError as e:
+        error_message = f"RAG 서비스 응답 오류: {e.response.status_code} - {e.response.text}"
+        logger.error(error_message, exc_info=True)
+        await _log_and_save_messages(
+            chat_service, current_session_id, current_user_content,
+            "", session, start_time, req, 500, error_message
+        )
+        raise HTTPException(status_code=500, detail=error_message)
+    except Exception as e:
+        error_message = f"RAG 처리 중 알 수 없는 오류 발생: {e}"
+        logger.error(error_message, exc_info=True)
+        await _log_and_save_messages(
+            chat_service, current_session_id, current_user_content,
+            "", session, start_time, req, 500, error_message
+        )
+        raise HTTPException(status_code=500, detail=error_message)
+
+    # Filter documents based on RAG_SCORE_THRESHOLD
+    satisfactory_documents = [
+        doc for doc in retrieved_documents if doc.get("rerank_score", 0) >= RAG_SCORE_THRESHOLD
+    ]
+    
+    if not satisfactory_documents:
+        logger.warning(f"No satisfactory documents retrieved from RAG for query: {user_query}. Falling back to agent/LLM proxy logic.")
+        # Fallback to the logic used when group_name is not present
+        agent = agent_info["agent"]
+        agent_model_id = agent_info["model_id"]
+        if req.model == agent_model_id:
+            return await handle_agent_request(req, agent, req.model, request, db)
+        else:
+            return await handle_llm_proxy_request(req)
+
+    context = "\n\n".join([doc["content"] for doc in satisfactory_documents])
+    # The system prompt already handles cases where context is empty, but now it's explicitly filtered.
+    # So, if we reach here, context should not be empty.
+
+    messages_for_llm = [
+        {"role": "system", "content": f"You are a helpful assistant. Use the following context to answer the user's question. If the context does not provide enough information, state that you cannot answer based on the provided context.\n\nContext:\n{context}"},
+        {"role": "user", "content": user_query}
+    ]
+
+    try:
+        model_client = get_client_for_model(req.model)
+        llm_params = {
+            "model": req.model,
+            "messages": messages_for_llm,
+            "stream": req.stream,
+            "temperature": req.temperature,
+            "max_tokens": req.max_tokens,
+        }
+        llm_response = model_client.chat.completions.create(**llm_params)
+
+        if req.stream:
+            return StreamingResponse(
+                proxy_stream_generator(llm_response),
+                media_type="text/event-stream"
+            )
+        else:
+            final_message_dict = llm_response.model_dump(exclude_none=True)["choices"][0]["message"]
+            final_message_content = final_message_dict.get("content", "")
+            
+            await _log_and_save_messages(
+                chat_service, current_session_id, current_user_content,
+                final_message_content, session, start_time, req, 200
+            )
+            
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+                "usage": llm_response.usage.model_dump() if llm_response.usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "session_id": current_session_id
+            }
+
+    except Exception as e:
+        error_message = str(e)
+        logger.error(f"RAG LLM 호출 오류: {type(e).__name__}: {error_message}", exc_info=True)
+        
+        await _log_and_save_messages(
+            chat_service, current_session_id, current_user_content,
+            "", session, start_time, req, 500, error_message
+        )
+        
+        raise HTTPException(status_code=500, detail=f"RAG LLM 호출 오류: {error_message}")
 
 @router.post("/chat/completions")
 @router.post("/completions")
@@ -210,7 +338,12 @@ async def chat_completions(
     agent = agent_info["agent"]
     agent_model_id = agent_info["model_id"]
 
-    if req.model == agent_model_id:
-        return await handle_agent_request(req, agent, req.model, request, db)
+    if req.group_name:
+        # Handle RAG request
+        return await handle_rag_request(req, request, db, agent_info)
     else:
-        return await handle_llm_proxy_request(req)
+        # Existing logic for agent or LLM proxy
+        if req.model == agent_model_id:
+            return await handle_agent_request(req, agent, req.model, request, db)
+        else:
+            return await handle_llm_proxy_request(req)
