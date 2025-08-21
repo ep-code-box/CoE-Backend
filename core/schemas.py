@@ -28,6 +28,7 @@ class AgentState(TypedDict):
     # 세션 ID를 상태에 포함하여 로깅 및 추적에 사용합니다.
     session_id: Optional[str]
     model_id: str
+    group_name: Optional[str]
 
 
 # --- OpenAI 호환 Tool Calling 스키마 ---
@@ -99,6 +100,7 @@ class OpenAIChatRequest(BaseModel):
     # Tool Calling 관련 필드 추가
     tools: Optional[List[Tool]] = None
     tool_choice: Optional[Union[Literal["auto", "none"], Dict[str, Any]]] = None
+    group_name: Optional[str] = None # RAG group_name 필드 추가
 
 
 class AiderChatRequest(OpenAIChatRequest):
