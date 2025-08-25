@@ -1,7 +1,7 @@
 import json
 import os
-from typing import Dict, Any
-from core.schemas import ChatState
+from typing import Dict, Any, Optional, List
+from core.schemas import AgentState
 from core.database import SessionLocal
 from services.db_service import LangFlowService
 
@@ -19,24 +19,25 @@ langflow_list_config = {
 # registry.py에서 수집할 실제 설명 (중복 방지)
 langflow_descriptions = [langflow_execute_config, langflow_list_config]
 
-def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
+async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> Dict[str, Any]:
     """저장된 LangFlow JSON을 실행하는 노드"""
     try:
-        # 사용자 메시지에서 플로우 이름 추출
-        last_message = state["messages"][-1]["content"] if state["messages"] else ""
-        
-        # 간단한 파싱으로 플로우 이름 추출 (실제로는 더 정교한 파싱이 필요할 수 있음)
         flow_name = None
-        if "실행" in last_message or "execute" in last_message.lower():
-            # "플로우명 실행" 또는 "execute 플로우명" 패턴 찾기
-            words = last_message.split()
-            for i, word in enumerate(words):
-                if word in ["실행", "execute"] and i > 0:
-                    flow_name = words[i-1]
-                    break
-                elif word in ["실행", "execute"] and i < len(words) - 1:
-                    flow_name = words[i+1]
-                    break
+        if tool_input and 'flow_name' in tool_input:
+            flow_name = tool_input['flow_name']
+        else:
+            # 사용자 메시지에서 플로우 이름 추출
+            last_message = state["history"][-1]["content"] if state["history"] else ""
+            # 간단한 파싱으로 플로우 이름 추출 (실제로는 더 정교한 파싱이 필요할 수 있음)
+            if "실행" in last_message or "execute" in last_message.lower():
+                words = last_message.split()
+                for i, word in enumerate(words):
+                    if word in ["실행", "execute"] and i > 0:
+                        flow_name = words[i-1]
+                        break
+                    elif word in ["실행", "execute"] and i < len(words) - 1:
+                        flow_name = words[i+1]
+                        break
         
         if not flow_name:
             return {
@@ -68,8 +69,8 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
             
             # 입력 데이터 구성
             inputs = {
-                "input_value": state.get("original_input", ""),
-                "message": last_message
+                "input_value": state.get("input", ""), # state['input'] 사용
+                "message": last_message # 마지막 메시지 사용
             }
             
             # 비동기 실행을 동기 컨텍스트에서 처리
@@ -79,9 +80,7 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             
-            execution_result = loop.run_until_complete(
-                langflow_service.execute_flow(flow_data, inputs)
-            )
+            execution_result = await langflow_service.execute_flow(flow_data, inputs)
             
             if execution_result.success:
                 result = f"실행 시간: {execution_result.execution_time:.2f}초\n"
@@ -110,7 +109,7 @@ def execute_langflow_node(state: ChatState) -> Dict[str, Any]:
             }]
         }
 
-def list_langflows_node(state: ChatState) -> Dict[str, Any]:
+async def list_langflows_run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> Dict[str, Any]:
     """저장된 LangFlow 목록을 조회하는 노드"""
     try:
         # 데이터베이스에서 플로우 목록 조회
@@ -158,35 +157,40 @@ def list_langflows_node(state: ChatState) -> Dict[str, Any]:
             }]
         }
 
-def simulate_langflow_execution(flow_data: Dict[str, Any], user_input: str) -> str:
-    """
-    LangFlow 실행을 시뮬레이션합니다.
-    실제 구현에서는 LangFlow 엔진을 사용해야 합니다.
-    """
-    try:
-        nodes = flow_data.get("data", {}).get("nodes", [])
-        edges = flow_data.get("data", {}).get("edges", [])
-        
-        # 간단한 시뮬레이션: 노드 타입별로 다른 처리
-        results = []
-        
-        for node in nodes:
-            node_type = node.get("type", "unknown")
-            node_data = node.get("data", {})
-            
-            if "input" in node_type.lower():
-                results.append(f"📥 입력: {user_input}")
-            elif "llm" in node_type.lower() or "chat" in node_type.lower():
-                results.append(f"🤖 LLM 처리: 사용자 입력을 분석하고 응답을 생성했습니다.")
-            elif "output" in node_type.lower():
-                results.append(f"📤 출력: 처리 결과를 반환합니다.")
-            elif "prompt" in node_type.lower():
-                template = node_data.get("template", "프롬프트 템플릿")
-                results.append(f"📝 프롬프트: {template[:50]}...")
-            else:
-                results.append(f"⚙️ {node_type}: 노드 처리 완료")
-        
-        return "\n".join(results) if results else "플로우가 성공적으로 실행되었습니다."
-        
-    except Exception as e:
-        return f"시뮬레이션 중 오류 발생: {str(e)}"
+# --- Tool Schemas and Functions for LLM ---
+
+available_tools: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_langflow",
+            "description": "저장된 LangFlow JSON을 실행합니다. 플로우 이름을 지정하여 실행할 수 있습니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "flow_name": {
+                        "type": "string",
+                        "description": "실행할 LangFlow의 이름"
+                    }
+                },
+                "required": ["flow_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_langflows",
+            "description": "저장된 모든 LangFlow 목록을 조회합니다.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    }
+]
+
+tool_functions: Dict[str, callable] = {
+    "execute_langflow": execute_langflow_run,
+    "list_langflows": list_langflows_run,
+}

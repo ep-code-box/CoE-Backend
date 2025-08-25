@@ -6,6 +6,7 @@ from core import schemas
 from core.database import get_db
 from services import flow_service
 from services.flow_router_service import FlowRouterService
+from services.db_service import LangFlowService
 
 # Dependency to get the router service from the app state
 def get_flow_router_service(request: Request) -> FlowRouterService:
@@ -25,7 +26,7 @@ def create_new_flow(
     """
     Register a new LangFlow, save it to the database, and dynamically expose its endpoint.
     """
-    db_flow = flow_db_service.get_flow_by_endpoint(db, endpoint=flow.endpoint)
+    db_flow = LangFlowService.get_flow_by_name(db, name=flow.endpoint)
     if db_flow:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -38,15 +39,13 @@ def create_new_flow(
 
 @router.get("/", response_model=List[schemas.FlowRead])
 def read_all_flows(
-    skip: int = 0, 
-    limit: int = 100, 
     db: Session = Depends(get_db)
 ):
     """
     Retrieve all registered LangFlows from the database.
     """
     # This endpoint doesn't need to change, it just reads from the DB.
-    flows = flow_db_service.get_flows(db, skip=skip, limit=limit)
+    flows = LangFlowService.get_all_flows(db)
     return flows
 
 @router.delete("/{flow_id}", response_model=schemas.FlowRead)

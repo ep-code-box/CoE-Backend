@@ -114,6 +114,9 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         session_id=current_session_id,
         model_id=req.model,
         group_name=req.group_name,
+        front_tool_name=req.front_tool_name,
+        tool_input=req.tool_input,
+        context=req.context,
     )
 
     try:

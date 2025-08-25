@@ -6,31 +6,63 @@ from typing import Dict, Any
 
 from core.schemas import AgentState
 from core.llm_client import get_client_for_model
-from tools.registry import get_tools_for_mode, get_all_tool_functions
+from services import tool_dispatcher
+import logging
 
-def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
-    """
-    OpenAI 함수 호출을 관리하는 핵심 노드입니다.
+logger = logging.getLogger(__name__)
 
-    1. 현재 모드에 맞는 도구를 가져옵니다.
-    2. LLM을 호출하여 함수 호출을 요청받습니다.
-    3. 함수를 실행하고 결과를 다시 LLM에 전달하여 최종 응답을 받습니다.
+async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     """
-    # 상태에서 현재 모드, 대화 기록, 모델 ID를 가져옵니다.
-    mode = state.get("mode", "basic") # 기본 모드를 'basic'으로 설정
+    요청에 front_tool_name이 있는 경우 해당 도구를 직접 실행하고, 그렇지 않은 경우 LLM을 통해 함수 호출을 관리하는 핵심 노드입니다.
+    """
+    # 상태에서 필요한 정보들을 가져옵니다.
+    front_tool_name = state.get("front_tool_name")
+    tool_input = state.get("tool_input")
     history = state["history"]
-    # TODO: 모델 ID를 설정에서 동적으로 가져오도록 수정 필요
     model_id = state["model_id"]
+    context = state.get("context", "default") # 컨텍스트가 없으면 'default' 사용
 
-    # 현재 모드에 맞는 도구 스키마를 가져옵니다.
-    tool_schemas, _ = get_tools_for_mode(mode)
-    all_tool_functions = get_all_tool_functions()
-    
-    # LLM 클라이언트를 가져옵니다.
+    # 1. front_tool_name이 제공된 경우, 직접 도구 실행
+    if front_tool_name:
+        logger.info(f"Executing tool directly based on front_tool_name: {front_tool_name}")
+        tool_result = await tool_dispatcher.dispatch_and_execute(front_tool_name, tool_input, state)
+
+        # 1.1. 도구를 성공적으로 찾아 실행한 경우
+        if tool_result is not None:
+            # 도구 실행 결과를 LLM에 전달하여 사용자 친화적인 응답 생성
+            llm_client = get_client_for_model(model_id)
+            refinement_prompt = [
+                *history,
+                {
+                    "role": "system",
+                    "content": f"You are a helpful assistant. The user requested to run the tool '{front_tool_name}' and got the following result. Please present this result to the user in a clear and friendly way."
+                },
+                {
+                    "role": "user",
+                    "content": f"Tool '{front_tool_name}' execution result:\n\n{str(tool_result)}"
+                }
+            ]
+
+            logger.info("Calling LLM to refine the tool result.")
+            response = llm_client.chat.completions.create(
+                model=model_id,
+                messages=refinement_prompt,
+            )
+            final_message = response.choices[0].message.model_dump()
+            history.append(final_message)
+            return {"history": history}
+
+        # 1.2. front_tool_name에 해당하는 도구를 찾지 못한 경우, 일반 채팅으로 fallback
+        else:
+            logger.info(f"Tool '{front_tool_name}' not found. Falling back to general chat.")
+            # 이 경우, 아래의 일반 LLM 호출 로직을 그대로 따릅니다.
+
+    # 2. front_tool_name이 없는 경우, 컨텍스트에 맞는 도구를 LLM이 선택하도록 로직 수행
+    logger.info(f"No front_tool_name provided. Proceeding with LLM-based tool calling for context: '{context}'")
+    tool_schemas, all_tool_functions = tool_dispatcher.get_available_tools_for_context(context)
     llm_client = get_client_for_model(model_id)
 
-    # LLM을 호출합니다.
-    print(f"--- Calling LLM (mode: {mode}) with {len(tool_schemas)} tools ---")
+    print(f"--- Calling LLM with {len(tool_schemas)} tools for context '{context}' ---")
     response = llm_client.chat.completions.create(
         model=model_id,
         messages=history,
@@ -38,16 +70,10 @@ def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
         tool_choice="auto" if tool_schemas else None,
     )
     response_message = response.choices[0].message
-
-    # LLM 응답을 기록에 추가합니다.
-    # Pydantic 모델을 dict로 변환하여 history에 추가해야 합니다.
     history.append(response_message.model_dump())
 
-    # 함수 호출이 있는지 확인하고 처리합니다.
     if response_message.tool_calls:
         print(f"--- LLM requested {len(response_message.tool_calls)} tool calls ---")
-        
-        # 요청된 모든 도구를 실행합니다.
         for tool_call in response_message.tool_calls:
             function_name = tool_call.function.name
             function_to_call = all_tool_functions.get(function_name)
@@ -56,14 +82,12 @@ def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                 try:
                     function_args = json.loads(tool_call.function.arguments)
                     print(f"Executing tool: {function_name}({function_args})")
-                    function_response = function_to_call(**function_args)
-                    
-                    # 실행 결과를 ToolMessage 형식으로 만들어 기록에 추가
+                    function_response = await function_to_call(**function_args)
                     history.append({
                         "tool_call_id": tool_call.id,
                         "role": "tool",
                         "name": function_name,
-                        "content": str(function_response), # 결과는 항상 문자열로 변환
+                        "content": str(function_response),
                     })
                 except Exception as e:
                     print(f"Error executing tool {function_name}: {e}")
@@ -82,7 +106,6 @@ def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                     "content": f"Error: Tool '{function_name}' not found.",
                 })
 
-        # 도구 실행 후, 다시 LLM을 호출하여 최종 응답을 생성합니다.
         print("--- Calling LLM again with tool results ---")
         second_response = llm_client.chat.completions.create(
             model=model_id,
@@ -91,5 +114,4 @@ def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
         second_response_message = second_response.choices[0].message
         history.append(second_response_message.model_dump())
 
-    # 최종 상태(업데이트된 history)를 반환합니다.
     return {"history": history}
