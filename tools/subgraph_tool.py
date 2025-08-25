@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from langgraph.graph import StateGraph, START, END
 from core.schemas import AgentState
 from typing_extensions import TypedDict
