@@ -1,100 +1,125 @@
-# 도구 개발자 가이드
+# 도구 개발자 가이드 (v2)
 
-이 가이드는 CoE-Backend 시스템에 새로운 도구를 생성하고 통합하는 방법을 설명합니다. 도구는 특정 작업을 수행하고 메인 애플리케이션 그래프에 동적으로 로드되는 독립적인 Python 모듈입니다.
+이 문서는 CoE-Backend 시스템에 새로운 도구를 생성하고 통합하는 방법을 설명합니다. 새로운 아키텍처는 **통합된 동적 디스패처**를 기반으로 하며, 모든 도구는 `services/tool_dispatcher.py`를 통해 관리됩니다.
 
 ## 핵심 개념
 
-- **동적 로딩:** `tools/registry.py`가 도구를 자동으로 발견하고 등록합니다. 새 도구를 수동으로 등록할 필요가 없습니다.
-- **네이밍 컨벤션:** 동적 로딩 메커니즘은 도구 모듈 내의 함수 및 변수에 대한 엄격한 이름 지정 규칙에 의존합니다.
-- **상태 관리:** 각 도구 노드는 대화 기록 및 기타 관련 데이터를 그래프를 통해 전달하는 `ChatState` 객체에서 작동합니다.
-- **API 노출:** `api/tools/dynamic_tools_api.py`는 도구 설명에 `url_path`가 포함된 모든 도구를 자동으로 FastAPI 엔드포인트로 생성합니다. 이를 통해 각 도구를 직접 API로 호출할 수 있습니다.
+- **통합 디스패처**: `services/tool_dispatcher.py`가 모든 도구(Python, LangFlow)의 검색, 실행, 목록 관리를 전담합니다. 기존의 `tools/registry.py`는 더 이상 사용되지 않습니다.
+- **두 가지 도구 유형**:
+  1.  **Python 도구**: `tools` 디렉토리 내에 `.py` 파일로 직접 구현된 도구입니다.
+  2.  **LangFlow 도구**: LangFlow UI로 생성된 워크플로우를 API를 통해 도구로 등록한 것입니다.
+- **매핑(Mapping) 기반 검색**:
+  - Python 도구는 `_map.py` 파일을 통해 `tool_contexts`와 연결됩니다.
+  - LangFlow 도구는 데이터베이스의 `langflow_tool_mappings` 테이블을 통해 `tool_name`과 `context`로 연결됩니다.
+- **`tool_name`**: 도구의 고유한 이름입니다. (예: `my_new_tool`, `sub_graph`)
+- **`context`**: 도구가 속하는 환경 또는 그룹을 나타내는 문자열입니다. (예: `aider`, `continue.dev`, `openWebUi`)
 
-## 새 도구를 만드는 방법
+## 새로운 Python 도구 만드는 방법
 
-새 도구를 만들려면 다음 단계를 따르세요.
+### 1단계: 도구 파일 생성 (`xxx_tool.py`)
 
-### 1. 도구 파일 생성
+`/tools` 디렉토리 또는 그 하위 디렉토리에 `_tool.py`로 끝나는 새 Python 파일을 만듭니다. (예: `my_new_tool.py`)
 
-`/tools` 디렉토리 또는 그 하위 디렉토리에 새 Python 파일을 만듭니다 (예: `my_new_tool.py`).
+이 파일은 다음 세 가지 요소를 포함해야 합니다.
 
-### 2. 노드 함수 정의
+1.  **`run(tool_input, state)` 함수 (필수)**: 도구의 핵심 로직을 포함하는 진입점 함수입니다.
+    - `tool_input`: 클라이언트가 제공한 구조화된 입력값 (dict). 없을 경우 None이 전달됩니다.
+    - `state`: `AgentState` 객체. `tool_input`이 없을 경우, 이 `state`의 대화 기록(`history`) 등에서 필요한 정보를 파싱해야 합니다.
 
-이 함수는 도구의 핵심 로직을 포함합니다. 에이전트가 도구를 사용하기로 결정하면 실행됩니다.
+2.  **`available_tools` 변수 (선택적, LLM 자동 호출용)**: LLM이 이 도구를 이해하고 스스로 호출할 수 있도록, 도구의 스키마를 정의한 리스트입니다. (OpenAI Function Calling 형식)
 
-- **이름:** 함수 이름은 반드시 `_node`로 끝나야 합니다. 예: `my_new_tool_node`.
-- **매개변수:** `ChatState` 객체인 `state`라는 단일 인수를 받아야 합니다.
-- **반환 값:** 상태를 업데이트하는 사전을 반환해야 합니다. 일반적으로 여기에는 대화 기록에 추가될 새 메시지 목록이 있는 `messages` 키가 포함됩니다.
+3.  **`tool_functions` 변수 (선택적, LLM 자동 호출용)**: 도구의 이름과 실제 함수를 매핑하는 딕셔너리입니다.
 
-**예시:**
+**예시: `my_new_tool.py`**
 ```python
-from typing import Dict, Any
-from core.schemas import ChatState
+from typing import Dict, Any, List, Optional
+from core.schemas import AgentState
 
-def my_new_tool_node(state: ChatState) -> Dict[str, Any]:
-    user_input = state.get("original_input", "")
-    result_content = f"내 도구가 처리함: {user_input}"
-    return {"messages": [{"role": "assistant", "content": result_content}]}
-```
+# 1. 핵심 로직
+async def run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> str:
+    if tool_input and 'name' in tool_input:
+        user_name = tool_input['name']
+    else:
+        # tool_input이 없을 경우, 대화 기록에서 이름 찾기 (예시)
+        user_name = "Guest"
+        for message in reversed(state['history']):
+            if message['role'] == 'user':
+                # 실제로는 더 정교한 파싱 로직 필요
+                user_name = message['content'].split()[-1]
+                break
+    return f"Hello, {user_name}! This is my new tool."
 
-### 3. 도구 설명 추가
+# 2. LLM을 위한 도구 스키마
+my_new_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "my_new_tool",
+        "description": "사용자에게 새로운 방식으로 인사합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "사용자의 이름"}
+            }
+        }
+    }
+}
 
-에이전트의 라우터는 이 설명을 사용하여 도구가 무엇을 하는지, 언제 사용해야 하는지 이해합니다.
+available_tools: List[Dict[str, Any]] = [my_new_tool_schema]
 
-- **이름:** 변수 이름은 단일 도구의 경우 `_description`으로, 파일 하나에 여러 도구가 있는 경우 `_descriptions`로 끝나야 합니다.
-- **형식:** 다음 키를 가진 사전(또는 사전 목록)이어야 합니다.
-    - `name`: 도구의 고유 식별자입니다. `_node` 접미사가 없는 노드 함수 이름과 일치해야 합니다 (예: `my_new_tool`).
-    - `description`: 도구가 수행하는 작업에 대한 명확하고 간결한 설명입니다. 에이전트가 올바른 라우팅 결정을 내리는 데 매우 중요합니다.
-    - `url_path`: (선택 사항) 도구를 외부 API 엔드포인트로 노출할 경우 사용하는 경로입니다. `dynamic_tools_api.py`가 이 경로를 사용합니다.
-
-**예시 1: 단일 도구 (`_description`)**
-```python
-my_new_tool_description = {
-    "name": "my_new_tool",
-    "description": "새로운 단일 도구의 기능을 설명합니다.",
-    "url_path": "/tools/my-new-tool"
+# 3. LLM을 위한 함수 매핑
+tool_functions: Dict[str, callable] = {
+    "my_new_tool": run
 }
 ```
 
-**예시 2: 여러 도구 (`_descriptions`)**
+### 2단계: 매핑 파일 생성 (`xxx_map.py`)
+
+`_tool.py` 파일과 같은 위치에 `_map.py` 파일을 생성합니다. 이 파일은 도구가 속하는 `context`와 API `endpoints`를 지정하는 역할을 합니다.
+
+- 파일 안에는 `tool_contexts`라는 이름의 리스트를 정의해야 합니다.
+- `endpoints` 딕셔너리는 선택 사항이며, 도구 함수 이름과 API 경로를 매핑합니다.
+
+**예시: `my_new_map.py`**
 ```python
-basic_tool_descriptions = [
-    {
-        "name": "tool1",
-        "description": "텍스트를 대문자로 변환합니다.",
-        "url_path": "/tools/tool1"
-    },
-    {
-        "name": "tool2",
-        "description": "텍스트를 역순으로 변환합니다.",
-        "url_path": "/tools/tool2"
-    }
+# 이 도구가 속하는 컨텍스트를 정의합니다.
+tool_contexts = [
+    "aider",
+    "continue.dev"
 ]
+
+# (선택 사항) 이 도구의 함수들을 외부 API로 노출할 경로를 정의합니다.
+endpoints = {
+    "my_new_tool": "/tools/my-new-tool-api"
+}
 ```
 
-### 4. (고급) 특수 엣지 정의
+## 새로운 LangFlow 도구 만드는 방법
 
-도구에 복잡한 제어 흐름(예: 실행 후 조건부 분기)이 필요한 경우 그래프에 대한 특수 엣지를 정의할 수 있습니다.
+### 1단계: LangFlow UI에서 Flow 생성
 
-- **이름:** 변수 이름은 반드시 `_edges`로 끝나야 합니다.
-- **형식:** 각 사전이 노드 간의 조건부 또는 표준 엣지를 정의하는 사전 목록입니다.
+먼저 LangFlow UI를 사용하여 원하는 워크플로우를 생성합니다.
 
-**예시 (`api_tool.py`에서):
-```python
-from langgraph.graph import END
+### 2단계: Flow를 도구로 등록
 
-def after_api_call(state: ChatState) -> str:
-    return "class_analysis" if state.get("next_node") == "combined_tool" else END
+`POST /flows/` API를 호출하여 생성된 Flow를 시스템에 등록합니다. 이 때, `tool_name`과 `context` 필드를 반드시 포함해야 합니다.
 
-api_tool_edges = [
-    {
-        "type": "conditional",
-        "source": "api_call",
-        "condition": after_api_call,
-        "path_map": {"class_analysis": "class_analysis", END: END}
-    }
-]
+**요청 예시:**
+```bash
+cURL -X POST "http://localhost:8000/flows/" \
+  -H "Content-Type: application/json" \
+  -d {
+    "endpoint": "my-langflow-endpoint",
+    "description": "A simple LangFlow tool.",
+    "flow_id": "flow-abc-123",
+    "flow_body": { ... },
+    "tool_name": "my_first_langflow_tool",  # <-- 도구 이름
+    "context": "my_team_context"            # <-- 도구 컨텍스트
+  }
 ```
 
-## 자동 등록
+요청이 성공하면, `langflow_tool_mappings` 데이터베이스 테이블에 해당 정보가 자동으로 저장되어 도구로 사용할 수 있게 됩니다.
 
-네이밍 컨벤션(`_node`, `_description(s)`, `_edges`)을 따르는 한, `tools/registry.py`는 시작 시 자동으로 도구를 찾아 로드합니다. 추가 등록 단계는 필요하지 않습니다.
+## 도구 실행 방식
+
+1.  **직접 실행**: 클라이언트가 `tool_name`과 `context`를 지정하여 `coe-agent`에 요청하면, 디스패처가 해당 이름의 도구를 즉시 찾아 실행합니다.
+2.  **LLM 자동 실행**: 클라이언트가 `tool_name`과 `context` 없이 일반적인 대화를 요청하면, `coe-agent`는 현재 `context`에 맞는 도구들의 스키마(`available_tools`)를 LLM에 제공합니다. LLM은 대화의 맥락에 가장 적합한 도구가 있다고 판단하면, 해당 도구를 사용하라는 응답을 보내고, 디스패처는 그에 따라 도구를 실행합니다.

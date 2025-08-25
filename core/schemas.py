@@ -30,6 +30,11 @@ class AgentState(TypedDict):
     model_id: str
     group_name: Optional[str]
 
+    # Front-end에서 전달된 도구 이름과 입력
+    front_tool_name: Optional[str]
+    tool_input: Optional[Dict[str, Any]]
+    context: Optional[str] # 도구 컨텍스트 (e.g., 'aider', 'continue.dev')
+
 
 # --- OpenAI 호환 Tool Calling 스키마 ---
 
@@ -101,6 +106,10 @@ class OpenAIChatRequest(BaseModel):
     tools: Optional[List[Tool]] = None
     tool_choice: Optional[Union[Literal["auto", "none"], Dict[str, Any]]] = None
     group_name: Optional[str] = None # RAG group_name 필드 추가
+    # Front-end에서 전달된 도구 이름과 입력
+    front_tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
+    context: Optional[str] = None # 도구 컨텍스트 (e.g., 'aider', 'continue.dev')
 
 
 class AiderChatRequest(OpenAIChatRequest):
@@ -173,6 +182,7 @@ class FlowCreate(BaseModel):
     description: Optional[str] = Field(None, description="A description for the flow.")
     flow_body: LangFlowJSON = Field(..., description="The JSON object defining the LangFlow.")
     flow_id: str = Field(..., description="The unique ID for the flow, typically from LangFlow itself.")
+    front_tool_name: Optional[str] = Field(None, description="The name to be used for the tool in the front-end.")
 
 class FlowRead(BaseModel):
     id: int

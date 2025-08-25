@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 import json
 import logging
 
-from tools.registry import load_all_tools
+from tools.loader import load_all_tools_dynamically as load_all_tools
 from core.schemas import ChatState
 
 logger = logging.getLogger(__name__)

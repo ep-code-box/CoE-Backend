@@ -106,7 +106,7 @@ class HTTPMethod(enum.Enum):
 # LangFlow 테이블 모델
 class LangFlow(Base):
     __tablename__ = "langflows"
-    
+    extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     flow_id = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(255), unique=True, index=True, nullable=False)
@@ -116,9 +116,28 @@ class LangFlow(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)
 
+    # 관계 설정
+    tool_mapping = relationship("LangflowToolMapping", back_populates="flow", uselist=False)
+
+class LangflowToolMapping(Base):
+    __tablename__ = "langflow_tool_mappings"
+    extend_existing=True
+    id = Column(Integer, primary_key=True, index=True)
+    flow_id = Column(String(255), ForeignKey('langflows.flow_id'), nullable=False)
+    front_tool_name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 관계 설정
+    flow = relationship("LangFlow", back_populates="tool_mapping")
+
+
+# 데이터베이스 모델 정의
+
 class APILog(Base):
     __tablename__ = "api_logs"
-    
+    extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(100))
     endpoint = Column(String(255), nullable=False)
@@ -138,7 +157,7 @@ class APILog(Base):
 # 채팅 메시지 히스토리 테이블
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
-    
+    extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(100), nullable=False)
     role = Column(String(50), nullable=False)  # user, assistant, system
@@ -155,7 +174,7 @@ class ChatMessage(Base):
 # 대화 요약 테이블
 class ConversationSummary(Base):
     __tablename__ = "conversation_summaries"
-    
+    extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(100), nullable=False)
     summary_content = Column(Text, nullable=False)
