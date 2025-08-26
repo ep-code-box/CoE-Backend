@@ -112,7 +112,9 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         session_id=current_session_id,
         model_id=req.model,
         group_name=req.group_name,
-        context=req.context,
+        context=req.context 
+        # 특정 컨택스트 할당 테스트.
+        # context=req.contex if req.context is not None else "continue.dev", # Set default context
     )
 
     try:
