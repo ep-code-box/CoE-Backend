@@ -14,7 +14,7 @@ RAG_PIPELINE_BASE_URL = os.getenv("RAG_PIPELINE_BASE_URL", "http://localhost:800
 
 def extract_git_url(text: str) -> Optional[str]:
     """텍스트에서 Git URL을 추출합니다."""
-    match = re.search(r'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:/[^\s]*)?', text)
+    match = re.search(r'https://git\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:/[^\s]*)?', text)
     if match:
         return match.group(0)
     return None

@@ -31,13 +31,6 @@ def _create_client_for_provider(model_info: ModelInfo) -> OpenAI:
             base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
             api_key=os.getenv("OPENAI_API_KEY")
         )
-    elif provider == "anthropic":
-        # Anthropic은 OpenAI 호환 API를 제공하지 않으므로 별도 처리가 필요할 수 있습니다.
-        # 현재는 OpenAI 클라이언트로 처리하되, 향후 확장 가능하도록 구조를 유지합니다.
-        return OpenAI(
-            base_url=os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com/v1"),
-            api_key=os.getenv("ANTHROPIC_API_KEY")
-        )
     elif provider == "local":
         return OpenAI(
             base_url=model_info.api_base,

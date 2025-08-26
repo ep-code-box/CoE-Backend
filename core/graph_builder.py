@@ -18,11 +18,11 @@ def build_agent_graph():
     """
     # 1. 모델 정보 정의 및 등록
     # TODO: 이 정보를 설정 파일로 분리하는 것을 고려
-    AGENT_MODEL_ID = "coe-agent-v2"
+    AGENT_MODEL_ID = "ax4"
     model_registry.register_model(
-        model_id=AGENT_MODEL_ID,
-        name="CoE Agent v2 (MCP)",
-        provider="CoE",
+        model_id="ax4",
+        name="ax4",
+        provider="sktax",
         description="Modal Context Protocol 기반의 차세대 CoE 에이전트"
     )
 

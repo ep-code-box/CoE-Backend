@@ -4,6 +4,7 @@ from fastapi import FastAPI
 # Import services
 from services.flow_router_service import FlowRouterService
 from services.scheduler_service import SchedulerService
+from services.python_tool_router_service import PythonToolRouterService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI):
     # 1. Initialize services
     flow_router_service = FlowRouterService(app)
     scheduler_service = SchedulerService(flow_router_service)
+    python_tool_router_service = PythonToolRouterService(app)
     
     # 2. Store service in app state for dependency injection
     app.state.flow_router_service = flow_router_service
@@ -24,6 +26,9 @@ async def lifespan(app: FastAPI):
     # 3. Perform initial sync and start the background scheduler
     scheduler_service.sync_routes_from_db()
     scheduler_service.start()
+
+    # 4. Add all python tool routes dynamically
+    python_tool_router_service.add_all_python_tool_routes()
     
     print("--- Startup complete ---")
     
