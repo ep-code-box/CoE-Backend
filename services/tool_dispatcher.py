@@ -83,7 +83,8 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
     response = llm_client.chat.completions.create(
         model=model_id,
         messages=messages_for_llm,
-        response_format={"type": "json_object"} # Force JSON output
+        response_format={"type": "json_object"}, # Force JSON output
+        temperature=0 # 도구 선택의 결정론적 판단을 위해 temperature를 0으로 설정
     )
     response_message = response.choices[0].message.model_dump()
     history.append(response_message) # Append the LLM's response to history
@@ -92,6 +93,7 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
     try:
         choice_json = json.loads(response_message["content"])
         chosen_tool_name = choice_json.get("next_tool")
+        logger.info(f"DEBUG: Parsed chosen_tool_name: '{chosen_tool_name}' (type: {type(chosen_tool_name)})") # 이 줄 추가
     except (json.JSONDecodeError, KeyError) as e:
         error_msg = f"LLM 응답 파싱 실패: {e}. 응답 내용: {response_message.get('content', 'N/A')}"
         logger.error(f"🚨 [TOOL_SELECTION_ERROR] {error_msg}")
@@ -103,9 +105,8 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
     # Check if a tool was chosen or if LLM indicated no tool
     if chosen_tool_name == "none":
         logger.info("LLM decided not to use any tool (explicitly 'none').")
-        # If LLM explicitly chose "none", we might want to generate a natural language response
-        # or indicate that no tool was found. For now, just return history.
-        return {"history": history}
+        # 도구가 실행되지 않았지만, 자연어 응답을 위해 '소통가' LLM을 호출해야 합니다.
+        pass # 아래 '소통가' LLM 호출 부분으로 흐름을 넘깁니다.
 
     # Validate chosen tool name against available tool schemas
     valid_tool_names = {tool['function']['name'] for tool in tool_schemas}
@@ -144,13 +145,20 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
         else:
             result = {"error": f"Tool '{chosen_tool_name}' was selected by LLM but not found in dispatcher."}
     
-    # 5. Append tool result to history
+    # --- 추가될 부분: visualize_conversation_as_langflow 도구일 경우 바로 JSON 반환 ---
+    if chosen_tool_name == "visualize_conversation_as_langflow":
+        # 도구의 결과(result)가 이미 LangFlow JSON 문자열이므로, 이를 바로 반환합니다.
+        # OpenAI 호환 응답 형식에 맞춰 assistant 메시지로 래핑합니다.
+        return {"history": [{"role": "assistant", "content": result}]}
+    # --- 추가될 부분 끝 ---
+
+    # 5. Append tool result to history (이 부분은 이제 visualize_conversation_as_langflow 도구일 경우 실행되지 않음)
     history.append({
         "role": "system",
         "content": f"Tool '{chosen_tool_name}' was executed and returned the following result:\n\n{json.dumps(result, ensure_ascii=False, indent=2)}",
     })
 
-    # 6. Call LLM again to get a natural language response
+    # 6. Call LLM again to get a natural language response (이 부분도 visualize_conversation_as_langflow 도구일 경우 실행되지 않음)
     logger.info("Calling LLM again to synthesize final response from tool result.")
     second_response = llm_client.chat.completions.create(
         model=model_id,

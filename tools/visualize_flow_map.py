@@ -8,5 +8,6 @@ tool_contexts = [
 
 # 도구의 직접 호출을 위한 API 엔드포인트를 정의합니다.
 endpoints = {
-    "visualize_conversation_as_langflow": "/tools/visualize-conversation-as-langflow"
+    "visualize_conversation_as_langflow": "/tools/visualize-conversation-as-langflow",
+    "generate_langflow_workflow": "/tools/generate-langflow-workflow"
 }
