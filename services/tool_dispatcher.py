@@ -146,9 +146,8 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
     
     # 5. Append tool result to history
     history.append({
-        "role": "tool",
-        "name": chosen_tool_name,
-        "content": json.dumps(result, ensure_ascii=False, indent=2),
+        "role": "system",
+        "content": f"Tool '{chosen_tool_name}' was executed and returned the following result:\n\n{json.dumps(result, ensure_ascii=False, indent=2)}",
     })
 
     # 6. Call LLM again to get a natural language response
