@@ -107,56 +107,56 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
         logger.info("LLM decided not to use any tool (explicitly 'none').")
         # 도구가 실행되지 않았지만, 자연어 응답을 위해 '소통가' LLM을 호출해야 합니다.
         pass # 아래 '소통가' LLM 호출 부분으로 흐름을 넘깁니다.
+    else: # <--- 이 else 블록을 추가하여 도구 유효성 검사 및 실행 로직을 감쌉니다.
+        # Validate chosen tool name against available tool schemas
+        valid_tool_names = {tool['function']['name'] for tool in tool_schemas}
+        if chosen_tool_name not in valid_tool_names:
+            error_msg = f"LLM이 유효하지 않은 도구({chosen_tool_name})를 반환했습니다. 유효한 도구: {', '.join(valid_tool_names)}"
+            logger.error(f"🚨 [TOOL_SELECTION_ERROR] {error_msg}")
+            history.append({"role": "system", "content": error_msg})
+            return {"history": history}
 
-    # Validate chosen tool name against available tool schemas
-    valid_tool_names = {tool['function']['name'] for tool in tool_schemas}
-    if chosen_tool_name not in valid_tool_names:
-        error_msg = f"LLM이 유효하지 않은 도구({chosen_tool_name})를 반환했습니다. 유효한 도구: {', '.join(valid_tool_names)}"
-        logger.error(f"🚨 [TOOL_SELECTION_ERROR] {error_msg}")
-        history.append({"role": "system", "content": error_msg})
-        return {"history": history}
+        # Find the actual tool schema for the chosen tool to get its parameters
+        chosen_tool_schema = next((tool for tool in tool_schemas if tool['function']['name'] == chosen_tool_name), None)
+        if not chosen_tool_schema:
+            error_msg = f"선택된 도구({chosen_tool_name})의 스키마를 찾을 수 없습니다."
+            logger.error(f"🚨 [TOOL_SELECTION_ERROR] {error_msg}")
+            history.append({"role": "system", "content": error_msg})
+            return {"history": history}
 
-    # Find the actual tool schema for the chosen tool to get its parameters
-    chosen_tool_schema = next((tool for tool in tool_schemas if tool['function']['name'] == chosen_tool_name), None)
-    if not chosen_tool_schema:
-        error_msg = f"선택된 도구({chosen_tool_name})의 스키마를 찾을 수 없습니다."
-        logger.error(f"🚨 [TOOL_SELECTION_ERROR] {error_msg}")
-        history.append({"role": "system", "content": error_msg})
-        return {"history": history}
+        # This is a simplified approach for passing arguments.
+        # A more robust solution would involve the LLM extracting arguments from the user's query.
+        last_user_message_content = ""
+        for msg in reversed(history):
+            if msg.get("role") == "user":
+                last_user_message_content = msg.get("content", "")
+                break
 
-    # This is a simplified approach for passing arguments.
-    # A more robust solution would involve the LLM extracting arguments from the user's query.
-    last_user_message_content = ""
-    for msg in reversed(history):
-        if msg.get("role") == "user":
-            last_user_message_content = msg.get("content", "")
-            break
+        tool_args = {"input": last_user_message_content}
 
-    tool_args = {"input": last_user_message_content}
-
-    # 4. Dispatch to the chosen tool executor
-    result = {}
-    if chosen_tool_name == RUN_BEST_LANGFLOW_TOOL_NAME:
-        result = await find_and_run_best_flow(state, tool_args)
-    else:
-        python_tool_path = find_python_tool_path(chosen_tool_name, context)
-        if python_tool_path:
-            result = await run_python_tool(python_tool_path, tool_args, state)
+        # 4. Dispatch to the chosen tool executor
+        result = {}
+        if chosen_tool_name == RUN_BEST_LANGFLOW_TOOL_NAME:
+            result = await find_and_run_best_flow(state, tool_args)
         else:
-            result = {"error": f"Tool '{chosen_tool_name}' was selected by LLM but not found in dispatcher."}
-    
-    # --- 추가될 부분: visualize_conversation_as_langflow 도구일 경우 바로 JSON 반환 ---
-    if chosen_tool_name == "visualize_conversation_as_langflow":
-        # 도구의 결과(result)가 이미 LangFlow JSON 문자열이므로, 이를 바로 반환합니다.
-        # OpenAI 호환 응답 형식에 맞춰 assistant 메시지로 래핑합니다.
-        return {"history": [{"role": "assistant", "content": result}]}
-    # --- 추가될 부분 끝 ---
+            python_tool_path = find_python_tool_path(chosen_tool_name, context)
+            if python_tool_path:
+                result = await run_python_tool(python_tool_path, tool_args, state)
+            else:
+                result = {"error": f"Tool '{chosen_tool_name}' was selected by LLM but not found in dispatcher."}
+        
+        # --- 추가될 부분: visualize_conversation_as_langflow 도구일 경우 바로 JSON 반환 ---
+        if chosen_tool_name == "visualize_conversation_as_langflow":
+            # 도구의 결과(result)가 이미 LangFlow JSON 문자열이므로, 이를 바로 반환합니다.
+            # OpenAI 호환 응답 형식에 맞춰 assistant 메시지로 래핑합니다.
+            return {"history": [{"role": "assistant", "content": result}]}
+        # --- 추가될 부분 끝 ---
 
-    # 5. Append tool result to history (이 부분은 이제 visualize_conversation_as_langflow 도구일 경우 실행되지 않음)
-    history.append({
-        "role": "system",
-        "content": f"Tool '{chosen_tool_name}' was executed and returned the following result:\n\n{json.dumps(result, ensure_ascii=False, indent=2)}",
-    })
+        # 5. Append tool result to history (이 부분은 이제 visualize_conversation_as_langflow 도구일 경우 실행되지 않음)
+        history.append({
+            "role": "system",
+            "content": f"Tool '{chosen_tool_name}' was executed and returned the following result:\n\n{json.dumps(result, ensure_ascii=False, indent=2)}",
+        })
 
     # 6. Call LLM again to get a natural language response (이 부분도 visualize_conversation_as_langflow 도구일 경우 실행되지 않음)
     logger.info("Calling LLM again to synthesize final response from tool result.")
