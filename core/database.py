@@ -124,7 +124,7 @@ class LangflowToolMapping(Base):
     extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     flow_id = Column(String(255), ForeignKey('langflows.flow_id'), nullable=False)
-    front_tool_name = Column(String(255), unique=True, nullable=False, index=True)
+    tool_contexts = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

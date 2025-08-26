@@ -114,8 +114,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         session_id=current_session_id,
         model_id=req.model,
         group_name=req.group_name,
-        front_tool_name=req.front_tool_name,
-        tool_input=req.tool_input,
+        # tool_input=req.tool_input,
         context=req.context,
     )
 
@@ -341,12 +340,12 @@ async def chat_completions(
     agent = agent_info["agent"]
     agent_model_id = agent_info["model_id"]
 
-    if req.group_name:
-        # Handle RAG request
-        return await handle_rag_request(req, request, db, agent_info)
-    else:
-        # Existing logic for agent or LLM proxy
-        if req.model == agent_model_id:
-            return await handle_agent_request(req, agent, req.model, request, db)
-        else:
-            return await handle_llm_proxy_request(req)
+    
+    # Existing logic for agent or LLM proxy
+    # if req.model == agent_model_id:
+    #     return await handle_agent_request(req, agent, req.model, request, db)
+    # else:
+    #     return await handle_llm_proxy_request(req)
+    
+    # 어떤 모델이든 툴 서치하도록.
+    return await handle_agent_request(req, agent, req.model, request, db)

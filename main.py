@@ -1,9 +1,13 @@
+import logging # Ensure logging is imported first
 import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-import logging
-import os
+
+# Import the centralized logging setup
+from core.logging_config import LOGGING_CONFIG
+
+logger = logging.getLogger(__name__)
 
 # 분리된 모듈에서 필요한 클래스와 함수 가져오기
 from core.graph_builder import build_agent_graph, build_aider_agent_graph
@@ -21,11 +25,11 @@ from core.lifespan import lifespan
 
 
 # 데이터베이스 초기화
-print("🔄 Initializing database...")
+logger.info("🔄 Initializing database...")
 if init_database():
-    print("✅ Database initialized successfully")
+    logger.info("✅ Database initialized successfully")
 else:
-    print("❌ Database initialization failed")
+    logger.error("❌ Database initialization failed")
 
 # 그래프 구성 및 에이전트 생성
 agent, tool_descriptions, agent_model_id = build_agent_graph()
@@ -93,43 +97,6 @@ app.add_middleware(
 # rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 # app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
 
-
-
-# 로깅 설정: 모든 로그를 하나의 핸들러로 처리
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True  # 기존 설정 덮어쓰기
-)
-logger = logging.getLogger(__name__)
-
-# tool_tracker 로거는 이제 기본 로깅 설정을 따르도록 propagate=True (기본값) 유지
-# 별도의 핸들러를 추가하지 않음
-tool_logger = logging.getLogger("tool_tracker")
-tool_logger.setLevel(logging.INFO) # tool_tracker 로거의 레벨 설정
-tool_logger.propagate = True # 루트 로거로 전파
-
-# uvicorn 로거 설정 조정 (중복 로그 방지)
-uvicorn_logger = logging.getLogger("uvicorn.access")
-uvicorn_logger.disabled = False  # uvicorn 로그는 유지
-
-# 루트 로거의 핸들러 중복 방지 (basicConfig가 이미 처리하지만, 혹시 모를 경우 대비)
-root_logger = logging.getLogger()
-if len(root_logger.handlers) > 1:
-    for handler in root_logger.handlers[1:]:
-        root_logger.removeHandler(handler)
-
-# 요청 로깅 미들웨어 (디버깅용) - 임시 비활성화
-# @app.middleware("http")
-# async def log_requests(request: Request, call_next):
-#     logger.info(f"Request: {request.method} {request.url}")
-#     logger.info(f"Headers: {dict(request.headers)}")
-#     
-#     response = await call_next(request)
-#     
-#     logger.info(f"Response status: {response.status_code}")
-#     return response
-
 # 에이전트 정보 설정
 set_agent_info(agent, agent_model_id)
 
@@ -142,7 +109,7 @@ app.include_router(models_router)
 app.include_router(flows_router)
 app.include_router(coding_assistant_router)
 app.include_router(embeddings_router)
-# app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가
+# app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가 -> 이제 lifespan에서 처리
 app.include_router(chat_router)
 
 if __name__ == "__main__":
@@ -155,11 +122,12 @@ if __name__ == "__main__":
     # APP_ENV가 'development'일 때만 hot-reloading을 활성화합니다.
     is_development = os.getenv("APP_ENV") == "development"
 
-    print(f"🚀 Starting server in {'development (hot-reload enabled)' if is_development else 'production'} mode.")
+    logger.info(f"🚀 Starting server in {'development (hot-reload enabled)' if is_development else 'production'} mode.")
 
     uvicorn.run(
         "main:app",
         host="0.0.0.0", port=8000, reload=is_development,
         reload_dirs=["api", "config","core", "routers", "services", "flows", "tools", "utils"],  # 감시할 디렉토리 지정
-        reload_excludes=[".*", ".py[cod]", "__pycache__", ".env", ".venv", ".git", "output","gitsync"]  # 감시를 제외할 파일 지정
+        reload_excludes=[".*", ".py[cod]", "__pycache__", ".env", ".venv", ".git", "output","gitsync"],  # 감시를 제외할 파일 지정
+        log_config=LOGGING_CONFIG
     )
