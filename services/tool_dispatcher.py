@@ -4,24 +4,16 @@ import os
 import sys
 import importlib.util
 import json
-from typing import Dict, Any, Optional, List, Tuple, Callable
+from typing import Dict, Any, Optional, List
 import logging
-import sys # Added import
 import httpx
 
 from sqlalchemy.orm import Session
 from core.database import LangFlow, SessionLocal, LangflowToolMapping
 from core.schemas import AgentState
-from core.llm_client import get_client_for_model, default_model # Import default_model
+from core.llm_client import get_client_for_model
 
 logger = logging.getLogger(__name__)
-# For debugging: Ensure this logger outputs to console
-if not logger.handlers: # Prevent adding multiple handlers if already configured
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
 
 # --- Constants ---
 TOOLS_BASE_DIR = "tools"
@@ -57,7 +49,7 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
     history = state.get("history", [])
 
     # 1. Get all available tools for the current context
-    tool_schemas, tool_functions = get_available_tools_for_context(context)
+    tool_schemas = get_available_tools_for_context(context)
 
     if not tool_schemas:
         logger.warning(f"No tools available for context '{context}'. Returning no-op.")
@@ -87,13 +79,6 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
         "content": system_prompt_content
     }
     messages_for_llm = history + [system_prompt]
-
-    # --- START DEBUG LOGGING ---
-    logger.debug(f"LLM Input Messages: {json.dumps(messages_for_llm, indent=2, ensure_ascii=False)}")
-    # --- END DEBUG LOGGING ---
-
-    logger.info("--- DEBUG: LLM Input History ---")
-    logger.info(json.dumps(messages_for_llm, indent=2, ensure_ascii=False))
 
     response = llm_client.chat.completions.create(
         model=model_id,
@@ -138,20 +123,15 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
         history.append({"role": "system", "content": error_msg})
         return {"history": history}
 
-    # For now, we'll assume tool_args are passed directly from the user's last message
-    # In a real scenario, the LLM might need to extract arguments from the user's query.
-    # For simplicity, let's assume the tool_input for the chosen tool is the last user message content.
-    # This part needs careful consideration based on how tools expect their inputs.
-    # For now, let's make a placeholder for tool_args.
+    # This is a simplified approach for passing arguments.
+    # A more robust solution would involve the LLM extracting arguments from the user's query.
     last_user_message_content = ""
     for msg in reversed(history):
         if msg.get("role") == "user":
             last_user_message_content = msg.get("content", "")
             break
 
-    # If the tool expects specific arguments, the LLM would need to be prompted to provide them in the JSON.
-    # For now, let's make a placeholder for tool_args.
-    tool_args = {"input": last_user_message_content} # This needs to be refined.
+    tool_args = {"input": last_user_message_content}
 
     # 4. Dispatch to the chosen tool executor
     result = {}
@@ -184,16 +164,16 @@ async def decide_and_dispatch(state: AgentState) -> Dict[str, Any]:
 
 # --- Tool Discovery & Execution ---
 
-def get_available_tools_for_context(context: str) -> Tuple[List[Dict[str, Any]], Dict[str, Callable]]:
+def get_available_tools_for_context(context: str) -> List[Dict[str, Any]]:
     """
-    주어진 컨텍스트에서 사용 가능한 모든 도구의 스키마와 함수를 반환합니다.
+    주어진 컨텍스트에서 사용 가능한 모든 도구의 스키마를 반환합니다.
     """
     all_schemas: List[Dict[str, Any]] = []
 
     if not context:
         logger.warning("Context not provided, cannot determine available tools.")
-        return all_schemas, {}
-    print("== context ====")
+        return all_schemas
+        
     # 1. Scan for Python tools
     tools_dir = os.path.abspath(TOOLS_BASE_DIR)
     for root, _, files in os.walk(tools_dir):
@@ -226,7 +206,7 @@ def get_available_tools_for_context(context: str) -> Tuple[List[Dict[str, Any]],
     finally:
         db.close()
 
-    return all_schemas, {}
+    return all_schemas
 
 def find_python_tool_path(tool_name: str, context: Optional[str]) -> Optional[str]:
     """

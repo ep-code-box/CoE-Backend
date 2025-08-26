@@ -2,11 +2,13 @@
 LangGraph 그래프 구성을 담당하는 모듈입니다.
 "Modal Context Protocol"에 따라 새로운 에이전트 그래프를 구성합니다.
 """
-
+import logging
 from langgraph.graph import StateGraph, END
 from core.schemas import AgentState
 from core.agent_nodes import tool_dispatcher_node
 from core.models import model_registry
+
+logger = logging.getLogger(__name__)
 
 def build_agent_graph():
     """
@@ -45,15 +47,6 @@ def build_agent_graph():
     # 향후 이 부분은 동적으로 채워지도록 개선될 수 있습니다.
     tool_descriptions = [] 
     
-    print("✅ Compiled new agent graph with 'tool_dispatcher_node'.")
+    logger.info("✅ Compiled new agent graph with 'tool_dispatcher_node'.")
     
     return agent, tool_descriptions, AGENT_MODEL_ID
-
-
-def build_aider_agent_graph():
-    """
-    Aider 전용 에이전트 그래프를 빌드합니다.
-    현재는 기본 에이전트와 동일한 그래프를 반환합니다.
-    """
-    print("⚠️ build_aider_agent_graph is using the default agent graph.")
-    return build_agent_graph()
