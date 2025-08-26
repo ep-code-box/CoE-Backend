@@ -30,7 +30,7 @@ API를 호출할 때, `model`과 `context`를 지정해야 합니다.
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d \
-'{ "model": "gpt-4-turbo", "messages": [ { "role": "user", "content": "https://github.com/my-org/my-repo 레포지토리를 분석해줘." } ], "context": "aider" }'
+'{ "model": "gpt-4o", "messages": [ { "role": "user", "content": "https://github.com/my-org/my-repo 레포지토리를 분석해줘." } ], "context": "aider" }'
 ```
 
 #### 2. 대화 이어가기
@@ -41,7 +41,7 @@ curl http://localhost:8000/v1/chat/completions \
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d \
-'{ "model": "gpt-4-turbo", "messages": [{"role": "user", "content": "방금 분석한 레포지토리의 주요 기술 스택은 뭐야?"}], "context": "aider", "session_id": "여기에-이전-응답의-세션-ID를-입력하세요" }'
+'{ "model": "gpt-4o", "messages": [{"role": "user", "content": "방금 분석한 레포지토리의 주요 기술 스택은 뭐야?"}], "context": "aider", "session_id": "여기에-이전-응답의-세션-ID를-입력하세요" }'
 ```
 
 ---
