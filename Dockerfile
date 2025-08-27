@@ -11,18 +11,15 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# 4. 의존성 설치 (빌드 캐시 최적화)
-# pip-tools를 먼저 설치합니다.
-RUN pip install pip-tools
+# 4. 의존성 설치 (uv 사용)
+# uv를 설치합니다.
+RUN pip install uv
 
 # requirements.in 파일을 복사합니다.
 COPY requirements.in .
 
-# requirements.in으로 requirements.txt를 생성합니다.
-RUN pip-compile requirements.in
-
-# 생성된 requirements.txt로 패키지를 설치합니다.
-RUN pip install --no-cache-dir -r requirements.txt
+# uv를 사용하여 requirements.in 파일의 패키지를 바로 설치합니다.
+RUN uv pip install --system --no-cache -r requirements.in
 
 # 5. 소스 코드 복사
 COPY . .
