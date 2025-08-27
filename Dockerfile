@@ -12,8 +12,16 @@ ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 # 4. 의존성 설치 (빌드 캐시 최적화)
-# 소스 코드를 복사하기 전에 의존성부터 설치하여, 코드 변경 시 매번 의존성을 새로 설치하지 않도록 합니다.
-COPY requirements.txt .
+# pip-tools를 먼저 설치합니다.
+RUN pip install pip-tools
+
+# requirements.in 파일을 복사합니다.
+COPY requirements.in .
+
+# requirements.in으로 requirements.txt를 생성합니다.
+RUN pip-compile requirements.in
+
+# 생성된 requirements.txt로 패키지를 설치합니다.
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. 소스 코드 복사
