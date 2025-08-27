@@ -11,7 +11,10 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# 4. 의존성 설치 (uv 사용)
+# 4. 시스템 의존성 및 의존성 설치 (uv 사용)
+# Rust 기반 패키지 빌드에 필요한 C 컴파일러(build-essential)를 설치합니다.
+RUN apt-get update && apt-get install -y build-essential
+
 # uv를 설치합니다.
 RUN pip install uv
 
@@ -19,6 +22,7 @@ RUN pip install uv
 COPY requirements.in .
 
 # uv를 사용하여 requirements.in 파일의 패키지를 바로 설치합니다.
+# chroma-hnswlib 빌드 오류 방지를 위해 HNSWLIB_NO_NATIVE=1 환경 변수를 설정합니다.
 RUN uv pip install --system --no-cache -r requirements.in
 
 # 5. 소스 코드 복사
