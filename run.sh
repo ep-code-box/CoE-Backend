@@ -36,16 +36,16 @@ fi
 echo "🔄 가상환경 활성화 중..."
 source "$VENV_DIR/bin/activate"
 
-# 의존성 설치/업데이트
-# .installed 마커 파일이 없거나 requirements.txt가 변경되었을 경우에만 설치를 진행합니다.
-REQUIREMENTS_FILE="requirements.txt"
+# 의존성 설치/업데이트 (uv 사용)
+# .installed 마커 파일이 없거나 requirements.in이 변경되었을 경우에만 설치를 진행합니다.
+REQUIREMENTS_FILE="requirements.in" # uv는 requirements.in을 직접 사용
 INSTALLED_MARKER="$VENV_DIR/.installed"
 
-# requirements.txt의 해시값을 저장할 파일
+# requirements.in의 해시값을 저장할 파일
 REQUIREMENTS_HASH_FILE="$VENV_DIR/.requirements_hash"
 
-# 현재 requirements.txt의 해시값 계산
-CURRENT_HASH=$(shasum "$REQUIREMENTS_FILE" | awk '{print $1}')
+# 현재 requirements.in의 해시값 계산
+CURRENT_HASH=$(shasum "$REQUIREMENTS_FILE" 2>/dev/null | awk '{print $1}')
 
 # 이전 해시값 읽기
 PREVIOUS_HASH=""
@@ -54,16 +54,16 @@ if [ -f "$REQUIREMENTS_HASH_FILE" ]; then
 fi
 
 if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
-    echo "📚 의존성 설치/업데이트 중..."
-    pip install --upgrade pip
-    pip install -r "$REQUIREMENTS_FILE"
+    echo "📚 의존성 설치/업데이트 중 (uv 사용)..."
+    pip install uv # uv 설치 또는 업데이트
+    HNSWLIB_NO_NATIVE=1 uv pip install -r "$REQUIREMENTS_FILE"
     
     # 설치 완료 후 마커 파일 생성 및 해시값 저장
     touch "$INSTALLED_MARKER"
     echo "$CURRENT_HASH" > "$REQUIREMENTS_HASH_FILE"
     echo "✅ 의존성 설치/업데이트 완료"
 elif [ -f "$INSTALLED_MARKER" ]; then
-    echo "✅ 의존성 이미 설치됨 (requirements.txt 변경 없음)"
+    echo "✅ 의존성 이미 설치됨 (requirements.in 변경 없음)"
 fi
 
 # .env 파일 로드 및 서버 실행
