@@ -6,4 +6,4 @@ __pycache__/
 .venv
 .git
 .gitignore
-.requirements.txt
+# .requirements.txt
