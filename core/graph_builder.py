@@ -20,6 +20,16 @@ def build_agent_graph():
     """
     # 1. 모델 정보 정의 및 등록
     # TODO: 이 정보를 설정 파일로 분리하는 것을 고려
+    # AGENT_MODEL_ID = "gpt-4o-mini" # 의미가 있나?
+    # model_registry.register_model(
+    #     model_id="gpt-4o-mini",
+    #     name="GPT-4o Mini",
+    #     provider="openai",
+    #     description="gpt-4o-mini"
+    #     # description="Modal Context Protocol 기반의 차세대 CoE 에이전트"
+    # )
+    # 1. 모델 정보 정의 및 등록
+    # TODO: 이 정보를 설정 파일로 분리하는 것을 고려
     AGENT_MODEL_ID = "ax4"
     model_registry.register_model(
         model_id="ax4",

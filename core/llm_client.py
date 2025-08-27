@@ -66,7 +66,7 @@ client = get_client_for_model(default_model.model_id)
 langchain_client = ChatOpenAI(
     model=default_model.model_id, # ModelRegistry에서 가져온 기본 모델 ID를 사용합니다.
     streaming=True,
-    openai_api_base=client.base_url,  # base_url을 명시적으로 전달
+    openai_api_base=str(client.base_url),  # base_url을 명시적으로 전달
     openai_api_key=client.api_key  # api_key를 명시적으로 전달
 )
 
