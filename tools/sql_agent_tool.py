@@ -68,3 +68,5 @@ available_tools: List[Dict[str, Any]] = [
 tool_functions: Dict[str, callable] = {
     "sql_agent_tool": run
 }
+
+tool_contexts: List[str] = ["sql"]

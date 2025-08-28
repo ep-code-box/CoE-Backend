@@ -268,3 +268,5 @@ available_tools: List[Dict[str, Any]] = [
 tool_functions: Dict[str, callable] = {
     "rag_guide_tool": run
 }
+
+tool_contexts: List[str] = ["rag"]
