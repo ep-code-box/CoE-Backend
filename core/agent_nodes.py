@@ -108,7 +108,8 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                 try:
                     function_args = json.loads(tool_call.function.arguments)
                     logger.info(f"Executing server-side tool: {function_name}({function_args})")
-                    function_response = await function_to_call(**function_args)
+                    # 'run' 함수 시그니처에 맞게 tool_input과 state를 전달합니다.
+                    function_response = await function_to_call(tool_input=function_args, state=state)
                     history.append({
                         "tool_call_id": tool_call.id,
                         "role": "tool",
