@@ -14,124 +14,124 @@ logger = logging.getLogger(__name__)
 
 async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     """
-    요청에 front_tool_name이 있는 경우(MCP) 해당 도구를 직접 실행하거나, 
-    그렇지 않은 경우 LLM을 통해 함수 호출을 관리하는 핵심 노드입니다.
+    front_tool_name은 UI 컨텍스트 식별자다. 
+    -> 해당 컨텍스트에 맞는 도구 세트를 로드하고
+    -> LLM이 실제 도구를 선택/호출하도록 한다.
+    -> 선택된 '실제 도구 이름'으로만 실행한다.
     """
-    # 상태에서 필요한 정보들을 가져옵니다.
+    import json
+    import uuid
+    import logging
+    from core.llm_client import get_client_for_model, client as default_llm_client
+    from services import tool_dispatcher
+
+    logger = logging.getLogger(__name__)
+
+    # ---- 상태 추출 ----
     front_tool_name = state.get("front_tool_name")
     tool_input = state.get("tool_input") or {}
     history = state["history"]
     model_id = state["model_id"]
-    context = state.get("context", "default")
-    client_tools = state.get("tools", []) or []
 
-    # 1. MCP(Modal Context Protocol): front_tool_name이 명시적으로 제공된 경우
-    if front_tool_name:
-        logger.info(f"[MCP] Executing tool directly based on front_tool_name: {front_tool_name}")
+    # front_tool_name을 실행 기준이 아닌 "컨텍스트"로만 사용
+    context = front_tool_name or state.get("context") or "default"
+    client_tools = state.get("tools", []) or []  # 클라이언트가 보낸 tool 스키마(있으면)
 
-        # 1.1. 서버 측 도구인지 확인하고 실행
-        server_tool_path = tool_dispatcher.find_python_tool_path(front_tool_name)
-        if server_tool_path:
-            logger.info(f"[MCP] Found server-side tool: {front_tool_name}")
-            tool_result = await tool_dispatcher.run_python_tool(server_tool_path, tool_input, state)
-            
-            # LLM을 통해 사용자 친화적인 응답 생성 (기본 클라이언트 사용)
-            refinement_prompt = [
-                *history,
-                {"role": "system", "content": f"You are a helpful assistant. The user requested to run the tool '{front_tool_name}' and got the following result. Please present this result to the user in a clear and friendly way."},
-                {"role": "user", "content": f"Tool '{front_tool_name}' execution result:\n\n{str(tool_result)}"}
-            ]
-            response = default_llm_client.chat.completions.create(model=model_id, messages=refinement_prompt)
-            final_message = response.choices[0].message.model_dump()
-            history.append(final_message)
-            return {"history": history}
-
-        # 1.2. 클라이언트 측 도구인지 확인하고 실행 요청
-        is_client_tool = any(tool.function.name == front_tool_name for tool in client_tools)
-        if is_client_tool:
-            logger.info(f"[MCP] Found client-side tool: {front_tool_name}. Emitting tool_call for client execution.")
-            tool_call_id = f"call_{uuid.uuid4().hex}"
-            arguments_str = json.dumps(tool_input)
-            
-            tool_call_message = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [{
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": {"name": front_tool_name, "arguments": arguments_str},
-                }],
-            }
-            history.append(tool_call_message)
-            return {"history": history}
-
-        # 1.3. 도구를 찾지 못한 경우, 일반 채팅으로 fallback
-        logger.warning(f"[MCP] Tool '{front_tool_name}' not found on server or client. Falling back to general chat.")
-
-    # 2. 일반 채팅: LLM이 도구를 선택하도록 로직 수행
-    logger.info(f"No front_tool_name provided. Proceeding with LLM-based tool calling for context: '{context}'")
-    
-    # 서버 측 동적 도구와 클라이언트 측 도구를 병합합니다.
+    # ---- 서버 도구 세트 로드 ----
     server_tool_schemas, server_tool_functions = tool_dispatcher.get_available_tools_for_context(context)
-    client_tool_schemas = [tool.model_dump(exclude_none=True) for tool in client_tools]
+    client_tool_schemas = [t if isinstance(t, dict) else getattr(t, "model_dump", lambda **_: t)() for t in client_tools]
     combined_tool_schemas = client_tool_schemas + server_tool_schemas
-    all_tool_functions = server_tool_functions # 클라이언트 측 함수는 클라이언트가 직접 실행
 
-    # LLM 호출 시에는 특정 프로바이더의 클라이언트를 사용해야 합니다.
-    # 여기서는 상태에 있는 model_id를 기반으로 클라이언트를 가져옵니다.
+    # LLM 클라이언트 선택
     llm_client = get_client_for_model(model_id)
 
-    logger.info(f"--- Calling LLM with {len(combined_tool_schemas)} tools ({len(client_tool_schemas)} client, {len(server_tool_schemas)} server) for context '{context}' ---")
-    response = llm_client.chat.completions.create(
-        model=model_id,
-        messages=history,
-        tools=combined_tool_schemas if combined_tool_schemas else None,
-        tool_choice="auto" if combined_tool_schemas else None,
+    logger.info(
+        f"--- Calling LLM with {len(combined_tool_schemas)} tools "
+        f"({len(client_tool_schemas)} client, {len(server_tool_schemas)} server) for context '{context}' ---"
     )
+
+    # tools/tool_choice에 None을 넣지 않도록 kwargs 동적 구성
+    llm_kwargs = dict(model=model_id, messages=history)
+    if combined_tool_schemas:
+        llm_kwargs["tools"] = combined_tool_schemas
+        llm_kwargs["tool_choice"] = "auto"
+
+    response = llm_client.chat.completions.create(**llm_kwargs)
     response_message = response.choices[0].message
     history.append(response_message.model_dump())
 
-    if response_message.tool_calls:
-        logger.info(f"--- LLM requested {len(response_message.tool_calls)} tool calls ---")
-        
-        # 서버에서 실행해야 할 도구만 필터링
-        server_tool_calls = [
-            tc for tc in response_message.tool_calls 
-            if tc.function.name in all_tool_functions
-        ]
-        
-        # 서버 도구 실행 및 결과 추가
-        if server_tool_calls:
-            for tool_call in server_tool_calls:
-                function_name = tool_call.function.name
-                function_to_call = all_tool_functions.get(function_name)
+    # 안전한 도구명/인자 추출기
+    def _extract_tool_name(tc) -> str:
+        try:
+            # OpenAI SDK 객체
+            return tc.function.name
+        except Exception:
+            # dict 형태
+            fn = (tc.get("function") if isinstance(tc, dict) else None) or {}
+            return fn.get("name")
+
+    def _extract_tool_args(tc) -> dict:
+        try:
+            return json.loads(tc.function.arguments)
+        except Exception:
+            fn = (tc.get("function") if isinstance(tc, dict) else None) or {}
+            args = fn.get("arguments") or "{}"
+            try:
+                return json.loads(args)
+            except Exception:
+                return {}
+
+    # 서버 쪽에서 실행할 함수 맵
+    all_server_funcs = server_tool_functions  # { tool_name: async_fn(tool_input, state) }
+
+    # 도구 호출 처리
+    tool_calls = getattr(response_message, "tool_calls", None)
+    if not tool_calls and isinstance(response_message, dict):
+        tool_calls = response_message.get("tool_calls")
+
+    if tool_calls:
+        logger.info(f"--- LLM requested {len(tool_calls)} tool calls ---")
+
+        # 서버에서 실행할 도구만 골라서 실행
+        for tc in tool_calls:
+            fn_name = _extract_tool_name(tc)
+            if fn_name in all_server_funcs:
+                fn = all_server_funcs[fn_name]
                 try:
-                    function_args = json.loads(tool_call.function.arguments)
-                    logger.info(f"Executing server-side tool: {function_name}({function_args})")
-                    # 'run' 함수 시그니처에 맞게 tool_input과 state를 전달합니다.
-                    function_response = await function_to_call(tool_input=function_args, state=state)
+                    fn_args = _extract_tool_args(tc)
+                    logger.info(f"Executing server-side tool: {fn_name}({fn_args})")
+                    result = await fn(tool_input=fn_args, state=state)
                     history.append({
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": getattr(tc, "id", tc.get("id") if isinstance(tc, dict) else None),
                         "role": "tool",
-                        "name": function_name,
-                        "content": str(function_response),
+                        "name": fn_name,
+                        "content": json.dumps(result, ensure_ascii=False),
                     })
                 except Exception as e:
-                    logger.error(f"Error executing server-side tool {function_name}: {e}")
+                    logger.error(f"Error executing server-side tool {fn_name}: {e}")
                     history.append({
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": getattr(tc, "id", tc.get("id") if isinstance(tc, dict) else None),
                         "role": "tool",
-                        "name": function_name,
+                        "name": fn_name,
                         "content": f"Error executing tool: {e}",
                     })
-            
-            # 서버 도구 실행 결과가 반영된 history로 다시 LLM 호출 (기본 클라이언트 사용)
-            logger.info("--- Calling LLM again with server-side tool results ---")
-            second_response = default_llm_client.chat.completions.create(
-                model=model_id,
-                messages=history,
-            )
-            second_response_message = second_response.choices[0].message
-            history.append(second_response_message.model_dump())
+            else:
+                # 서버에서 실행할 도구가 아니면, 클라이언트가 처리하도록 assistant tool_call만 남김
+                tool_call_id = getattr(tc, "id", tc.get("id") if isinstance(tc, dict) else f"call_{uuid.uuid4().hex}")
+                args = _extract_tool_args(tc)
+                history.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {"name": fn_name, "arguments": json.dumps(args, ensure_ascii=False)},
+                    }],
+                })
+
+        # 서버 도구 실행 결과 반영 후, 최종 답변 1회 정제
+        logger.info("--- Calling LLM again with server-side tool results ---")
+        second = default_llm_client.chat.completions.create(model=model_id, messages=history)
+        history.append(second.choices[0].message.model_dump())
 
     return {"history": history}
