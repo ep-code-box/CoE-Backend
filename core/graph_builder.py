@@ -2,13 +2,11 @@
 LangGraph 그래프 구성을 담당하는 모듈입니다.
 "Modal Context Protocol"에 따라 새로운 에이전트 그래프를 구성합니다.
 """
-import logging
+
 from langgraph.graph import StateGraph, END
 from core.schemas import AgentState
 from core.agent_nodes import tool_dispatcher_node
 from core.models import model_registry
-
-logger = logging.getLogger(__name__)
 
 def build_agent_graph():
     """
@@ -20,23 +18,13 @@ def build_agent_graph():
     """
     # 1. 모델 정보 정의 및 등록
     # TODO: 이 정보를 설정 파일로 분리하는 것을 고려
-    AGENT_MODEL_ID = "gpt-4o-mini" # 의미가 있나?
+    AGENT_MODEL_ID = "coe-agent-v2"
     model_registry.register_model(
-        model_id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        provider="openai",
-        description="gpt-4o-mini"
-        # description="Modal Context Protocol 기반의 차세대 CoE 에이전트"
+        model_id=AGENT_MODEL_ID,
+        name="CoE Agent v2 (MCP)",
+        provider="CoE",
+        description="Modal Context Protocol 기반의 차세대 CoE 에이전트"
     )
-    # 1. 모델 정보 정의 및 등록
-    # TODO: 이 정보를 설정 파일로 분리하는 것을 고려
-    # AGENT_MODEL_ID = "ax4"
-    # model_registry.register_model(
-    #     model_id="ax4",
-    #     name="ax4",
-    #     provider="sktax",
-    #     description="Modal Context Protocol 기반의 차세대 CoE 에이전트"
-    # )
 
     # 2. 새로운 AgentState를 사용하여 그래프를 정의합니다.
     graph = StateGraph(AgentState)
@@ -57,6 +45,15 @@ def build_agent_graph():
     # 향후 이 부분은 동적으로 채워지도록 개선될 수 있습니다.
     tool_descriptions = [] 
     
-    logger.info("✅ Compiled new agent graph with 'tool_dispatcher_node'.")
+    print("✅ Compiled new agent graph with 'tool_dispatcher_node'.")
     
     return agent, tool_descriptions, AGENT_MODEL_ID
+
+
+def build_aider_agent_graph():
+    """
+    Aider 전용 에이전트 그래프를 빌드합니다.
+    현재는 기본 에이전트와 동일한 그래프를 반환합니다.
+    """
+    print("⚠️ build_aider_agent_graph is using the default agent graph.")
+    return build_agent_graph()

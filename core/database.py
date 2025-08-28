@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, JSON, ForeignKey, Enum, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, JSON, Float, ForeignKey, Enum, DECIMAL, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -124,7 +124,7 @@ class LangflowToolMapping(Base):
     extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     flow_id = Column(String(255), ForeignKey('langflows.flow_id'), nullable=False)
-    tool_contexts = Column(String(255), unique=True, nullable=False, index=True)
+    front_tool_name = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -225,7 +225,7 @@ def test_connection():
         
         # 이제 실제 데이터베이스에 연결
         with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
+            result = connection.execute(text("SELECT 1"))
             print("✅ MariaDB 연결 성공!")
             return True
     except Exception as e:
