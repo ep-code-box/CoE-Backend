@@ -5,13 +5,14 @@
 import time
 import uuid
 import logging
+import json
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from core.schemas import (
-    OpenAIChatRequest, AgentState
+    OpenAIChatRequest
 )
 from core.database import get_db
 from services.chat_service import get_chat_service, ChatService
@@ -24,16 +25,7 @@ router = APIRouter(
     prefix="/v1",
 )
 
-_agent_instance = None
 
-def set_agent_info(agent, agent_model_id: str):
-    global _agent_instance
-    _agent_instance = {"agent": agent, "model_id": agent_model_id}
-
-async def get_agent_info():
-    if _agent_instance is None:
-        raise HTTPException(status_code=500, detail="Agent not initialized")
-    return _agent_instance
 
 async def _get_or_create_session_and_history(
     req: OpenAIChatRequest, chat_service: ChatService, request: Request
@@ -92,11 +84,15 @@ async def _log_and_save_messages(
         error_message=error_message
     )
 
-async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: str, 
-                              request: Request, db: Session):
-    """
-    새로운 Modal Context Protocol 에이전트 요청을 처리합니다.
-    """
+@router.post("/chat/completions")
+@router.post("/completions")
+async def chat_completions(
+    req: OpenAIChatRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """AI 에이전트 또는 일반 LLM 프록시를 통해 채팅 응답을 처리합니다."""
+    
     start_time = time.time()
     chat_service = get_chat_service(db)
 
@@ -104,91 +100,94 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         req, chat_service, request
     )
 
-    agent_state = AgentState(
-        history=history_dicts,
-        input=current_user_content,
-        mode="coding", # 현재는 'coding' 모드로 고정
-        scratchpad={},
-        session_id=current_session_id,
-        model_id=req.model,
-        group_name=req.group_name,
-        context=req.context 
-        # 특정 컨택스트 할당 테스트.
-        # context=req.contex if req.context is not None else "continue.dev", # Set default context
-    )
-
     try:
-        logger.info(f"Invoking new agent with state: mode='{agent_state['mode']}', history_len={len(agent_state['history'])} ")
-        result_state = await agent.ainvoke(agent_state)
-        logger.info("New agent invocation successful.")
+        # Call the new process_chat_request method in ChatService
+        # Use the last user message from req.messages as the current user_message
+        last_user_message = ""
+        if req.messages:
+            for msg in reversed(req.messages):
+                if msg.role == "user":
+                    last_user_message = msg.content
+                    break
+        
+        # Default context for now, can be made dynamic later if needed
+        context = req.context if req.context is not None else "default" 
 
-        final_message_dict = result_state["history"][-1]
+        llm_response = await chat_service.process_chat_request(
+            session_id=current_session_id,
+            user_message=last_user_message,
+            model_id=req.model,
+            context=context
+        )
 
-        if final_message_dict.get("function_call"):
-            logger.info(f"Agent requested function call: {final_message_dict['function_call']}")
-            return {
+        if "tool_call_response" in llm_response:
+            # LLM returned a tool call, pass it directly to the client
+            tool_call_data = llm_response["tool_call_response"]
+            logger.info(f"LLM requested tool call: {tool_call_data.get('tool_calls')}")
+            
+            # Log and save messages for the user's input and the assistant's tool call
+            # The tool_call_data already contains the assistant's message with tool_calls
+            # We need to ensure the user's message is saved, which is done inside process_chat_request
+            # The assistant's tool call message is also saved inside process_chat_request
+            
+            # Format into OpenAI-compatible response
+            response_to_continue = {
                 "id": f"chatcmpl-{uuid.uuid4()}",
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": req.model,
                 "choices": [{
                     "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "function_call": final_message_dict["function_call"]
-                    },
-                    "finish_reason": "function_call"
+                    "message": tool_call_data,
+                    "finish_reason": "tool_calls" # Use tool_calls as finish reason
                 }],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, # Usage not tracked here
                 "session_id": current_session_id
             }
-
-        final_message_content = final_message_dict.get("content", "")
-
-        await _log_and_save_messages(
-            chat_service, current_session_id, current_user_content,
-            final_message_content, session, start_time, req, 200
-        )
-        
-        if req.stream:
-            return StreamingResponse(
-                agent_stream_generator(req.model, final_message_content, current_session_id),
-                media_type="text/event-stream"
+            logger.debug(f"Sending raw JSON to Continue: {json.dumps(response_to_continue, indent=2)}")
+            return response_to_continue
+        elif "text_response" in llm_response:
+            # LLM returned a text response
+            final_message_content = llm_response["text_response"]
+            
+            # Log and save messages (user's message saved in process_chat_request, assistant's text response also saved there)
+            # Only need to log the API call here
+            await _log_and_save_messages(
+                chat_service, current_session_id, current_user_content,
+                final_message_content, session, start_time, req, 200
             )
-        else:
-            return {
-                "id": f"chatcmpl-{uuid.uuid4()}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": req.model,
-                "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                "session_id": current_session_id
-            }
+            
+            if req.stream:
+                return StreamingResponse(
+                    agent_stream_generator(req.model, final_message_content, current_session_id),
+                    media_type="text/event-stream"
+                )
+            else:
+                return {
+                    "id": f"chatcmpl-{uuid.uuid4()}",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": req.model,
+                    "choices": [{"index": 0, "message": {"role": "assistant", "content": final_message_content}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, # Usage not tracked here
+                    "session_id": current_session_id
+                }
+        elif "error" in llm_response:
+            error_message = llm_response["error"]
+            logger.error(f"LLM 처리 중 오류 발생: {error_message}")
+            await _log_and_save_messages(
+                chat_service, current_session_id, current_user_content,
+                "", session, start_time, req, 500, error_message
+            )
+            raise HTTPException(status_code=500, detail=f"LLM 처리 오류: {error_message}")
 
     except Exception as e:
         error_message = str(e)
-        logger.error(f"에이전트 실행 중 예외 발생: {type(e).__name__}: {error_message}", exc_info=True)
+        logger.error(f"채팅 요청 처리 중 예외 발생: {type(e).__name__}: {error_message}", exc_info=True)
         
         await _log_and_save_messages(
             chat_service, current_session_id, current_user_content,
             "", session, start_time, req, 500, error_message
         )
         
-        raise HTTPException(status_code=500, detail=f"에이전트 실행 오류: {error_message}")
-
-@router.post("/chat/completions")
-@router.post("/completions")
-async def chat_completions(
-    req: OpenAIChatRequest,
-    request: Request,
-    db: Session = Depends(get_db),
-    agent_info: dict = Depends(get_agent_info)
-):
-    """AI 에이전트 또는 일반 LLM 프록시를 통해 채팅 응답을 처리합니다."""
-    
-    agent = agent_info["agent"]
-    
-    # 모든 모델 요청을 에이전트에게 전달하여 도구 사용을 결정하도록 합니다.
-    return await handle_agent_request(req, agent, req.model, request, db)
+        raise HTTPException(status_code=500, detail=f"채팅 요청 처리 오류: {error_message}")

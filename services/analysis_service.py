@@ -1,4 +1,3 @@
-import json
 import uuid
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -6,12 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 
 from core.database import (
-    AnalysisRequest, RepositoryAnalysis, CodeFile, ASTNode, 
-    TechDependency, CorrelationAnalysis, DocumentAnalysis,
-    DevelopmentStandard, VectorEmbedding,
-    AnalysisStatus, RepositoryStatus, DependencyType, 
-    DocumentType, SourceType, StandardType,
-    get_db, SessionLocal
+    AnalysisRequest, RepositoryAnalysis, CodeFile, DevelopmentStandard, AnalysisStatus, RepositoryStatus, StandardType
 )
 
 class AnalysisService:

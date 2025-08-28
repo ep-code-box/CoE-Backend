@@ -1,4 +1,3 @@
-import logging
 
 # Uvicorn's default format for access logs, with slight modification for clarity
 # See: https://github.com/encode/uvicorn/blob/master/uvicorn/logging.py
@@ -34,22 +33,22 @@ LOGGING_CONFIG = {
     "loggers": {
         "": { # Root logger
             "handlers": ["default"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False
         },
         "uvicorn.error": {
-            "level": "INFO",
+            "level": "DEBUG",
             "handlers": ["default"],
             "propagate": False
         },
         "uvicorn.access": {
             "handlers": ["access"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False,
         },
         "uvicorn": {
             "handlers": ["default"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False
         }
     },

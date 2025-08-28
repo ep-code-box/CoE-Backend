@@ -2,7 +2,7 @@
 코드 템플릿 관리 유틸리티
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 import json
