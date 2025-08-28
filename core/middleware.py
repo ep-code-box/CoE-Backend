@@ -1,17 +1,7 @@
-import time
-import logging
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette import status
-
-logger = logging.getLogger(__name__) # Moved this line
-
-
 """
 인증 미들웨어 및 보안 관련 미들웨어
 """
+
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

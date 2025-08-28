@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from core.database import LangFlow
+from core.database import LangFlow, get_db, SessionLocal
 from datetime import datetime
 
 class LangFlowService:
@@ -38,17 +38,17 @@ class LangFlowService:
     @staticmethod
     def get_flow_by_name(db: Session, name: str) -> Optional[LangFlow]:
         """이름으로 LangFlow를 조회합니다."""
-        return db.query(LangFlow).filter(LangFlow.name == name, LangFlow.is_active).first()
+        return db.query(LangFlow).filter(LangFlow.name == name, LangFlow.is_active == True).first()
     
     @staticmethod
     def get_flow_by_id(db: Session, flow_id: int) -> Optional[LangFlow]:
         """ID로 LangFlow를 조회합니다."""
-        return db.query(LangFlow).filter(LangFlow.id == flow_id, LangFlow.is_active).first()
+        return db.query(LangFlow).filter(LangFlow.id == flow_id, LangFlow.is_active == True).first()
     
     @staticmethod
     def get_all_flows(db: Session) -> List[LangFlow]:
         """모든 활성 LangFlow를 조회합니다."""
-        return db.query(LangFlow).filter(LangFlow.is_active).order_by(LangFlow.created_at.desc()).all()
+        return db.query(LangFlow).filter(LangFlow.is_active == True).order_by(LangFlow.created_at.desc()).all()
     
     @staticmethod
     def update_flow(db: Session, name: str, flow_data: Optional[Dict[str, Any]] = None, 
