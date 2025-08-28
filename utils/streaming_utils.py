@@ -7,17 +7,17 @@ import json
 import time
 import uuid
 import asyncio
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict, Any
 
 
-def create_openai_chunk(model_id: str, content: str, finish_reason: str = None, session_id: str = None) -> str:
+def create_openai_chunk(model_id: str, delta: Dict[str, Any], finish_reason: str = None, session_id: str = None) -> str:
     """
     OpenAI 스트리밍 형식에 맞는 청크(chunk)를 생성합니다.
     
     Args:
         model_id: 모델 ID
-        content: 청크 내용
-        finish_reason: 완료 이유 (None, "stop", "length" 등)
+        delta: 청크 내용 (예: {"content": "hello"}, {"tool_calls": [...]})
+        finish_reason: 완료 이유 (None, "stop", "length", "tool_calls" 등)
         
     Returns:
         str: OpenAI 스트리밍 형식의 청크 문자열
@@ -31,7 +31,7 @@ def create_openai_chunk(model_id: str, content: str, finish_reason: str = None, 
         "choices": [
             {
                 "index": 0,
-                "delta": {"content": content},
+                "delta": delta,
                 "finish_reason": finish_reason,
             }
         ],
@@ -41,31 +41,35 @@ def create_openai_chunk(model_id: str, content: str, finish_reason: str = None, 
     return f"data: {json.dumps(response)}\n\n"
 
 
-async def agent_stream_generator(model_id: str, final_message: str, session_id: str) -> AsyncGenerator[str, None]:
+async def agent_stream_generator(model_id: str, final_message_dict: Dict[str, Any], session_id: str) -> AsyncGenerator[str, None]:
     """
     LangGraph 에이전트의 최종 응답을 스트리밍 형식으로 변환하는 비동기 생성기입니다.
-    
-    Args:
-        model_id: 모델 ID
-        final_message: 스트리밍할 최종 메시지
-        session_id: 현재 대화 세션 ID
-        
-    Yields:
-        str: OpenAI 스트리밍 형식의 청크들
+    텍스트 응답과 도구 호출 응답을 모두 처리할 수 있습니다.
     """
-    # 첫 번째 청크에만 session_id를 포함
-    words = final_message.split(' ')
-    first_chunk = True
-    for word in words:
-        if first_chunk:
-            yield create_openai_chunk(model_id, f"{word} ", session_id=session_id)
-            first_chunk = False
-        else:
-            yield create_openai_chunk(model_id, f"{word} ")
-        await asyncio.sleep(0.05)  # 인위적인 딜레이로 스트리밍 효과 극대화
+    content = final_message_dict.get("content")
+    tool_calls = final_message_dict.get("tool_calls")
+    finish_reason = None
+    has_sent_chunk = False
+
+    # 1. 텍스트 콘텐츠 스트리밍
+    if content:
+        words = content.split(' ')
+        for i, word in enumerate(words):
+            session_id_to_send = session_id if not has_sent_chunk else None
+            yield create_openai_chunk(model_id, {"content": f"{word} "}, session_id=session_id_to_send)
+            has_sent_chunk = True
+            await asyncio.sleep(0.05)  # 인위적인 딜레이로 스트리밍 효과 극대화
+        finish_reason = "stop"
+
+    # 2. 도구 호출 스트리밍 (단일 청크로 전송)
+    if tool_calls:
+        delta = {"role": "assistant", "content": None, "tool_calls": tool_calls}
+        session_id_to_send = session_id if not has_sent_chunk else None
+        yield create_openai_chunk(model_id, delta, session_id=session_id_to_send)
+        finish_reason = "tool_calls"
     
-    # 스트림 종료를 알리는 마지막 청크
-    yield create_openai_chunk(model_id, "", "stop")
+    # 3. 스트림 종료를 알리는 마지막 청크
+    yield create_openai_chunk(model_id, {}, finish_reason=finish_reason)
     yield "data: [DONE]\n\n"
 
 
@@ -79,5 +83,5 @@ async def proxy_stream_generator(response) -> AsyncGenerator[str, None]:
     Yields:
         str: 프록시된 스트리밍 청크들
     """
-    for chunk in response:
+    async for chunk in response:
         yield f"data: {chunk.model_dump_json()}\n\n"

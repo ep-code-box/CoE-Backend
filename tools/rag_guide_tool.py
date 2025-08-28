@@ -255,11 +255,7 @@ available_tools: List[Dict[str, Any]] = [
                         "type": "string",
                         "description": "분석 결과를 묶을 그룹명 (선택 사항)"
                     }
-                },
-                "oneOf": [
-                    {"required": ["git_url"]},
-                    {"required": ["analysis_id"]}
-                ]
+                }
             }
         }
     }
