@@ -59,21 +59,21 @@ def find_python_tool_path(tool_name: str) -> Optional[str]:
         도구 파일의 절대 경로. 없으면 None.
     """
     tools_dir = os.path.abspath(TOOLS_BASE_DIR)
-    logger.info(f"Searching for Python tools in: {tools_dir}")
+    logger.debug(f"Searching for Python tool '{tool_name}' in: {tools_dir}")
 
     for root, _, files in os.walk(tools_dir):
         for filename in files:
             if filename.endswith("_map.py"):
                 map_filepath = os.path.join(root, filename)
                 try:
-                    # _map.py 파일을 동적으로 로드하여 front_tool_names 리스트를 가져옴
                     spec = importlib.util.spec_from_file_location("map_module", map_filepath)
                     map_module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(map_module)
                     
-                    front_tool_names = getattr(map_module, 'front_tool_names', [])
+                    # endpoints 딕셔너리의 key 값들을 front_tool_name으로 간주
+                    endpoints = getattr(map_module, 'endpoints', {})
                     
-                    if tool_name in front_tool_names:
+                    if tool_name in endpoints.keys():
                         tool_filepath = map_filepath.replace("_map.py", "_tool.py")
                         if os.path.exists(tool_filepath):
                             logger.info(f"Found matching tool '{tool_name}' in '{map_filepath}' -> '{tool_filepath}'")
@@ -85,65 +85,46 @@ def find_python_tool_path(tool_name: str) -> Optional[str]:
     
     return None
 
-def get_all_available_tools() -> Tuple[List[Dict[str, Any]], Dict[str, Callable]]:
+def get_available_tools_for_context(context: str) -> Tuple[List[Dict[str, Any]], Dict[str, Callable]]:
     """
-    LLM이 사용할 수 있도록 등록된 모든 도구의 스키마와 함수를 반환합니다.
+    주어진 컨텍스트(_map.py 기준)에 맞는, LLM이 사용할 수 있는 도구의 스키마와 함수를 반환합니다.
     """
     all_schemas = []
     all_functions = {}
+    logger.info(f"Loading tools for context: '{context}'")
 
-    # Python 도구 스캔
     tools_dir = os.path.abspath(TOOLS_BASE_DIR)
     for root, _, files in os.walk(tools_dir):
         for filename in files:
-            if filename.endswith("_tool.py"):
-                tool_path = os.path.join(root, filename)
+            if filename.endswith("_map.py"):
+                map_filepath = os.path.join(root, filename)
                 try:
-                    module_name = os.path.splitext(os.path.relpath(tool_path, "."))[0].replace(os.path.sep, '.')
-                    spec = importlib.util.spec_from_file_location(module_name, tool_path)
-                    tool_module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(tool_module)
+                    map_spec = importlib.util.spec_from_file_location("map_module", map_filepath)
+                    map_module = importlib.util.module_from_spec(map_spec)
+                    map_spec.loader.exec_module(map_module)
 
-                    if hasattr(tool_module, 'available_tools') and hasattr(tool_module, 'tool_functions'):
-                        all_schemas.extend(getattr(tool_module, 'available_tools'))
-                        all_functions.update(getattr(tool_module, 'tool_functions'))
+                    tool_contexts = getattr(map_module, 'tool_contexts', [])
+
+                    if context in tool_contexts:
+                        tool_filepath = map_filepath.replace("_map.py", "_tool.py")
+                        if os.path.exists(tool_filepath):
+                            logger.info(f"Map file {map_filepath} matches context '{context}'. Loading tools from {tool_filepath}")
+                            
+                            tool_spec = importlib.util.spec_from_file_location("tool_module", tool_filepath)
+                            tool_module = importlib.util.module_from_spec(tool_spec)
+                            tool_spec.loader.exec_module(tool_module)
+
+                            if hasattr(tool_module, 'available_tools') and hasattr(tool_module, 'tool_functions'):
+                                all_schemas.extend(getattr(tool_module, 'available_tools'))
+                                all_functions.update(getattr(tool_module, 'tool_functions'))
+                        else:
+                            logger.warning(f"Map file {map_filepath} matched context, but tool file {tool_filepath} not found.")
+
                 except Exception as e:
-                    logger.error(f"Error loading tool from {tool_path}: {e}")
+                    logger.error(f"Error processing map file {map_filepath}: {e}")
 
-    # LangFlow 도구 스캔 (DB에서)
-    db: Session = SessionLocal()
-    try:
-        mappings = db.query(LangflowToolMapping).all()
-        for mapping in mappings:
-            # LangFlow 도구에 대한 스키마 생성 (필요 시)
-            # 이 부분은 LangFlow 도구의 입력을 어떻게 정의할지에 따라 달라집니다.
-            # 여기서는 간단한 예시를 보여줍니다.
-            schema = {
-                "type": "function",
-                "function": {
-                    "name": mapping.front_tool_name,
-                    "description": mapping.description or f"Execute the {mapping.front_tool_name} LangFlow workflow.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "tool_input": {
-                                "type": "object",
-                                "description": "The input for the LangFlow tool."
-                            }
-                        }
-                    }
-                }
-            }
-            all_schemas.append(schema)
-            # LangFlow 도구 실행 함수를 매핑합니다.
-            # partial 등을 사용하여 컨텍스트를 포함시킬 수 있습니다.
-            all_functions[mapping.front_tool_name] = lambda tool_input, state, m=mapping: run_langflow_tool(m, tool_input, state)
-
-    except Exception as e:
-        logger.error(f"Error loading LangFlow tools from database: {e}")
-    finally:
-        db.close()
-
+    # LangFlow 도구는 현재 컨텍스트 필터링을 지원하지 않음 (향후 추가 가능)
+    logger.info(f"Found {len(all_schemas)} tools available for context '{context}'.")
     return all_schemas, all_functions
 
 def find_langflow_tool(tool_name: str) -> Optional[LangflowToolMapping]:

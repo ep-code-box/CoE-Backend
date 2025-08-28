@@ -11,7 +11,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 # Rust 관련 환경변수 설정
-ENV RUSTFLAGS="--cfg reqwest_unstable"
+# ENV RUSTFLAGS="--cfg reqwest_unstable"
 
 # 4. 시스템 의존성 및 의존성 설치 (uv 사용)
 # Rust 기반 패키지 빌드에 필요한 C 컴파일러(build-essential)를 설치합니다.
