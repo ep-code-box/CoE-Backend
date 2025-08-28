@@ -1,5 +1,4 @@
 import requests
-import json
 import re
 import httpx
 import os
@@ -7,7 +6,6 @@ from typing import Dict, Any, Optional, List
 from core.schemas import AgentState
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from tools.utils import is_git_url_reachable # Assuming this utility is available
 
 # RAG Pipeline의 기본 URL (환경 변수 또는 설정 파일에서 가져오는 것이 좋음)
 RAG_PIPELINE_BASE_URL = os.getenv("RAG_PIPELINE_BASE_URL", "http://localhost:8001")
@@ -255,11 +253,7 @@ available_tools: List[Dict[str, Any]] = [
                         "type": "string",
                         "description": "분석 결과를 묶을 그룹명 (선택 사항)"
                     }
-                },
-                "oneOf": [
-                    {"required": ["git_url"]},
-                    {"required": ["analysis_id"]}
-                ]
+                }
             }
         }
     }

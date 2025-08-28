@@ -8,20 +8,143 @@ import logging
 import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from typing import Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from core.database import ChatMessage, ConversationSummary, APILog, redis_client
+from core.llm_client import get_client_for_model
+from services.tool_dispatcher import get_available_tools_for_context, run_python_tool, find_and_run_best_flow, find_python_tool_path
+from core.schemas import AgentState
 
 logger = logging.getLogger(__name__)
 
 
 class ChatService:
     """채팅 관련 서비스 클래스"""
+
+    # Define Continue Built-in Tools
+    CONTINUE_BUILT_IN_TOOLS = {
+        "read_file", "read_currently_open_file", "create_new_file", "edit_existing_file",
+        "search_and_replace_in_file", "grep_search", "file_glob_search", "search_web",
+        "view_diff", "ls", "create_rule_block", "request_rule", "fetch_url_content",
+        "codebase", "run_terminal_command"
+    }
     
     def __init__(self, db: Session):
         self.db = db
+
+    async def process_chat_request(self, session_id: str, user_message: str, model_id: str, context: str) -> Dict[str, Any]:
+        """
+        사용자 채팅 요청을 처리하고 LLM 응답을 반환합니다.
+        LLM 응답에 도구 호출이 포함되어 있으면 해당 응답을 그대로 반환하고,
+        그렇지 않으면 LLM의 텍스트 응답을 반환합니다.
+        """
+        # 1. 세션 업데이트 (턴 수 증가)
+        session_data = self.update_session_turns(session_id)
+        if not session_data.get("is_active"):
+            return {"error": "세션이 비활성화되었거나 최대 턴 수를 초과했습니다."}
+
+        # 2. 채팅 이력 가져오기
+        chat_history = self.get_chat_history(session_id, limit=10) # 최근 10개 메시지
+        
+        # 3. LLM에 전달할 메시지 준비
+        messages_for_llm = []
+        for msg in chat_history:
+            messages_for_llm.append({"role": msg.role, "content": msg.content})
+        messages_for_llm.append({"role": "user", "content": user_message})
+
+        # 4. LLM 클라이언트 및 사용 가능한 도구 스키마 가져오기
+        llm_client = get_client_for_model(model_id)
+        tool_schemas = get_available_tools_for_context(context) # tool_dispatcher에서 가져옴
+        logger.info(f"Available tool schemas for context '{context}': {json.dumps(tool_schemas, indent=2, ensure_ascii=False)}")
+
+        # 5. LLM 호출
+        try:
+            if tool_schemas:
+                response = await llm_client.chat.completions.create(
+                    model=model_id,
+                    messages=messages_for_llm,
+                    tools=tool_schemas,
+                    tool_choice="auto" # LLM이 도구를 사용할지 말지 결정
+                )
+            else:
+                response = await llm_client.chat.completions.create(
+                    model=model_id,
+                    messages=messages_for_llm
+                )
+            
+            response_message = response.choices[0].message
+            logger.info(f"Raw LLM response message: {json.dumps(response_message.model_dump(), indent=2, ensure_ascii=False)}")
+
+            # 6. LLM 응답 저장 (사용자 메시지)
+            self.save_chat_message(session_id, "user", user_message, session_data["conversation_turns"])
+
+            # 7. LLM 응답 처리 및 저장
+            if response_message.tool_calls:
+                # Assuming only one tool call for simplicity, adapt if multiple are expected
+                tool_call = response_message.tool_calls[0]
+                tool_name = tool_call.function.name
+                tool_args = json.loads(tool_call.function.arguments) # Arguments are JSON string
+
+                if tool_name in self.CONTINUE_BUILT_IN_TOOLS:
+                    # Continue Built-in Tool: Proxy the LLM's original response
+                    logger.info(f"LLM called Continue built-in tool: {tool_name}. Proxying response.")
+                    tool_call_content = json.dumps(response_message.model_dump(), ensure_ascii=False)
+                    self.save_chat_message(session_id, "assistant", tool_call_content, session_data["conversation_turns"], selected_tool=tool_name)
+                    return {"tool_call_response": response_message.model_dump()}
+                else:
+                    # Internal Tool: Execute the tool and get a natural language response
+                    logger.info(f"LLM called internal tool: {tool_name}. Executing tool...")
+                    
+                    # Create AgentState for tool execution
+                    agent_state_for_tool = AgentState(
+                        history=messages_for_llm, # Pass current conversation history
+                        input=user_message,
+                        mode="default", # Or a more specific mode if applicable
+                        scratchpad={},
+                        session_id=session_id,
+                        model_id=model_id,
+                        context=context
+                    )
+
+                    tool_result = None
+                    try:
+                        # Determine which type of internal tool it is (Python tool or LangFlow)
+                        if tool_name == "run_best_langflow_workflow": # Example for LangFlow
+                            tool_result = await find_and_run_best_flow(agent_state_for_tool, tool_args)
+                        else: # Assume it's a Python tool
+                            python_tool_path = find_python_tool_path(tool_name, context)
+                            if python_tool_path:
+                                tool_result = await run_python_tool(python_tool_path, tool_args, agent_state_for_tool)
+                            else:
+                                tool_result = {"error": f"Internal tool '{tool_name}' not found or executable."}
+
+                    except Exception as tool_exec_e:
+                        logger.error(f"Error executing internal tool '{tool_name}': {tool_exec_e}", exc_info=True)
+                        tool_result = {"error": f"Error executing tool '{tool_name}': {str(tool_exec_e)}"}
+
+                    # Append tool result to messages for LLM to summarize
+                    messages_for_llm.append({"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(tool_result, ensure_ascii=False)})
+                    
+                    # Call LLM again to get a natural language response
+                    logger.info(f"Calling LLM again to summarize internal tool result for tool '{tool_name}'.")
+                    second_response = await llm_client.chat.completions.create(
+                        model=model_id,
+                        messages=messages_for_llm
+                    )
+                    assistant_response_content = second_response.choices[0].message.content
+                    self.save_chat_message(session_id, "assistant", assistant_response_content, session_data["conversation_turns"], selected_tool=tool_name)
+                    return {"text_response": assistant_response_content}
+            else:
+                # 텍스트 응답이라면, 텍스트 내용을 반환
+                assistant_response_content = response_message.content
+                self.save_chat_message(session_id, "assistant", assistant_response_content, session_data["conversation_turns"])
+                return {"text_response": assistant_response_content}
+
+        except Exception as e:
+            logger.error(f"LLM 호출 중 오류 발생: {e}", exc_info=True)
+            self.save_chat_message(session_id, "system", f"LLM 처리 오류: {e}", session_data["conversation_turns"])
+            return {"error": f"LLM 처리 중 오류가 발생했습니다: {str(e)}"}
     
     def get_or_create_session(self, session_id: Optional[str] = None, 
                             user_agent: Optional[str] = None, 

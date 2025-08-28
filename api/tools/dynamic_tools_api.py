@@ -3,7 +3,7 @@
 tools 디렉토리의 도구들을 스캔하여 url_path가 있는 도구들을 자동으로 API 엔드포인트로 등록합니다.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 import json

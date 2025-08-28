@@ -38,7 +38,7 @@ def router_node(state: ChatState, tool_descriptions: List[Dict[str, Any]], model
     dev_guide_keywords = ["개발가이드", "표준개발가이드", "공통코드화", "공통함수", "가이드"]
     
     if git_url and any(keyword in last_user_message for keyword in dev_guide_keywords):
-        print(f"🤖[Router]: Forcing selection of 'guide_extraction' due to Git URL and dev guide keywords.")
+        print("🤖[Router]: Forcing selection of 'guide_extraction' due to Git URL and dev guide keywords.")
         return {
             "messages": [], 
             "next_node": "guide_extraction", 

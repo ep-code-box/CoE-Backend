@@ -1,27 +1,21 @@
 import logging # Ensure logging is imported first
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 # Import the centralized logging setup
 from core.logging_config import LOGGING_CONFIG
-
-logger = logging.getLogger(__name__)
-
-# 분리된 모듈에서 필요한 클래스와 함수 가져오기
-from core.graph_builder import build_agent_graph
-from api.chat_api import router as chat_router, set_agent_info
+from api.chat_api import router as chat_router # Removed set_agent_info
 from api.flows_api import router as flows_router
 from api.models_api import router as models_router
 from api.health_api import router as health_router
-
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.embeddings_api import router as embeddings_router
-
-# from api.tools.dynamic_tools_api import router as dynamic_tools_router
 from core.database import init_database
 from core.lifespan import lifespan
+
+logger = logging.getLogger(__name__) # Moved this line
 
 
 # 데이터베이스 초기화
@@ -30,9 +24,6 @@ if init_database():
     logger.info("✅ Database initialized successfully")
 else:
     logger.error("❌ Database initialization failed")
-
-# 그래프 구성 및 에이전트 생성
-agent, tool_descriptions, agent_model_id = build_agent_graph()
 
 # FastAPI 앱 생성 및 설정
 app = FastAPI(
@@ -95,9 +86,6 @@ app.add_middleware(
 # 4. 속도 제한 미들웨어 - 임시 비활성화
 # rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
 # app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
-
-# 에이전트 정보 설정
-set_agent_info(agent, agent_model_id)
 
 
 # 라우터들 등록

@@ -1,7 +1,6 @@
 """사용자 요청의 의도를 분석하여 가장 적합한 도구를 찾아 실행하는 서비스입니다.
 이 모듈은 도구 실행의 두뇌 역할을 하며, Python 도구와 LangFlow 워크플로우를 모두 처리합니다."""
 import os
-import sys
 import importlib.util
 import json
 from typing import Dict, Any, Optional, List
@@ -12,6 +11,7 @@ from sqlalchemy.orm import Session
 from core.database import LangFlow, SessionLocal, LangflowToolMapping
 from core.schemas import AgentState
 from core.llm_client import get_client_for_model
+from external_tool_schemas.continue_builtin_tools import ALL_CONTINUE_BUILT_IN_TOOL_SCHEMAS # Added import
 
 logger = logging.getLogger(__name__)
 
@@ -206,12 +206,16 @@ def get_available_tools_for_context(context: str) -> List[Dict[str, Any]]:
     # 2. Check for LangFlows and add generic executor tool
     db: Session = SessionLocal()
     try:
-        if db.query(LangFlow).join(LangflowToolMapping).filter(LangflowToolMapping.tool_contexts == context, LangFlow.is_active == True).first():
+        if db.query(LangFlow).join(LangflowToolMapping).filter(LangflowToolMapping.tool_contexts == context, LangFlow.is_active).first():
             all_schemas.append(LANGFLOW_GENERIC_SCHEMA)
     except Exception as e:
         logger.error(f"Error checking for LangFlows in context '{context}': {e}")
     finally:
         db.close()
+
+    # 3. Add Continue Built-in Tools if context is 'continue.dev'
+    if context == "continue.dev":
+        all_schemas.extend(ALL_CONTINUE_BUILT_IN_TOOL_SCHEMAS)
 
     return all_schemas
 
@@ -274,7 +278,7 @@ async def find_and_run_best_flow(state: AgentState, tool_input: Optional[Dict[st
 
     db: Session = SessionLocal()
     try:
-        available_flows = db.query(LangFlow).filter(LangFlow.context == context, LangFlow.is_active == True).all()
+        available_flows = db.query(LangFlow).filter(LangFlow.context == context, LangFlow.is_active).all()
         if not available_flows:
             return {"message": "해당 컨텍스트에 실행 가능한 워크플로우가 없습니다."}
 
