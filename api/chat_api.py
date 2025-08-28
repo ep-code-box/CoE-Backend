@@ -1,6 +1,4 @@
-"""
-채팅 관련 API 엔드포인트들을 담당하는 모듈입니다.
-"""
+"채팅 관련 API 엔드포인트들을 담당하는 모듈입니다."
 
 import time
 import uuid
@@ -117,6 +115,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         front_tool_name=req.front_tool_name,
         tool_input=req.tool_input,
         context=req.context,
+        tools=req.tools, # 클라이언트의 도구 목록을 상태에 추가
     )
 
     try:
@@ -125,7 +124,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         logger.info("New agent invocation successful.")
 
         final_message_dict = result_state["history"][-1]
-        final_message_content = final_message_dict.get("content", "")
+        final_message_content = final_message_dict.get("content") or ""  # content가 None일 경우 빈 문자열로 처리
 
         await _log_and_save_messages(
             chat_service, current_session_id, current_user_content,
@@ -134,7 +133,7 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         
         if req.stream:
             return StreamingResponse(
-                agent_stream_generator(req.model, final_message_content, current_session_id),
+                agent_stream_generator(req.model, final_message_dict, current_session_id),
                 media_type="text/event-stream"
             )
         else:
@@ -341,12 +340,19 @@ async def chat_completions(
     agent = agent_info["agent"]
     agent_model_id = agent_info["model_id"]
 
-    if req.group_name:
-        # Handle RAG request
-        return await handle_rag_request(req, request, db, agent_info)
-    else:
-        # Existing logic for agent or LLM proxy
-        if req.model == agent_model_id:
-            return await handle_agent_request(req, agent, req.model, request, db)
-        else:
-            return await handle_llm_proxy_request(req)
+    # 사용자의 제안에 따라, 모든 요청을 handle_agent_request로 통합합니다.
+    return await handle_agent_request(req, agent, req.model, request, db)
+
+    
+    # agent = agent_info["agent"]
+    # agent_model_id = agent_info["model_id"]
+
+    # if req.group_name:
+    #     # Handle RAG request
+    #     return await handle_rag_request(req, request, db, agent_info)
+    # else:
+    #     # Existing logic for agent or LLM proxy
+    #     if req.model == agent_model_id:
+    #         return await handle_agent_request(req, agent, req.model, request, db)
+    #     else:
+    #         return await handle_llm_proxy_request(req)

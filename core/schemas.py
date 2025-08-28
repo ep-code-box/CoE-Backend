@@ -34,6 +34,7 @@ class AgentState(TypedDict):
     front_tool_name: Optional[str]
     tool_input: Optional[Dict[str, Any]]
     context: Optional[str] # 도구 컨텍스트 (e.g., 'aider', 'continue.dev')
+    tools: Optional[List["Tool"]] = None # 클라이언트에서 받은 도구 목록
 
 
 # --- OpenAI 호환 Tool Calling 스키마 ---
