@@ -123,6 +123,27 @@ async def handle_agent_request(req: OpenAIChatRequest, agent, agent_model_id: st
         logger.info("New agent invocation successful.")
 
         final_message_dict = result_state["history"][-1]
+
+        if final_message_dict.get("function_call"):
+            logger.info(f"Agent requested function call: {final_message_dict['function_call']}")
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "function_call": final_message_dict["function_call"]
+                    },
+                    "finish_reason": "function_call"
+                }],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "session_id": current_session_id
+            }
+
         final_message_content = final_message_dict.get("content", "")
 
         await _log_and_save_messages(
