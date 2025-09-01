@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional, List
 from core.schemas import AgentState
 
 # RAG Pipeline의 기본 URL (환경 변수 또는 설정 파일에서 가져오는 것이 좋음)
-RAG_PIPELINE_BASE_URL = os.getenv("RAG_PIPELINE_BASE_URL", "http://localhost:8001")
+RAG_PIPELINE_BASE_URL = os.getenv("RAG_PIPELINE_BASE_URL", "http://coe-ragpipeline:8001")
 
 async def run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> Dict[str, Any]:
     """

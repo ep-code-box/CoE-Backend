@@ -1,7 +1,27 @@
+import os
+import logging
+from pathlib import Path
 
 # Uvicorn's default format for access logs, with slight modification for clarity
 # See: https://github.com/encode/uvicorn/blob/master/uvicorn/logging.py
 ACCESS_LOG_FORMAT = '%(levelname)s: %(asctime)s - %(client_addr)s - "%(request_line)s" %(status_code)s'
+
+def get_log_directory():
+    """로그 디렉토리 경로를 반환합니다."""
+    # Docker 환경에서는 /app/logs, 로컬에서는 ./logs 사용
+    if os.path.exists("/app/logs"):
+        return "/app/logs"
+    else:
+        return "./logs"
+
+def ensure_log_directory():
+    """로그 디렉토리가 존재하는지 확인하고 없으면 생성합니다."""
+    log_dir = get_log_directory()
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+# 로그 디렉토리 확인 및 생성
+LOG_DIR = ensure_log_directory()
 
 LOGGING_CONFIG = {
     "version": 1,
@@ -17,6 +37,10 @@ LOGGING_CONFIG = {
             "fmt": ACCESS_LOG_FORMAT,
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
+        "detailed": {
+            "fmt": "%(levelname)s: %(asctime)s - %(name)s - %(funcName)s:%(lineno)d - %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
     },
     "handlers": {
         "default": {
@@ -30,40 +54,138 @@ LOGGING_CONFIG = {
             "stream": "ext://sys.stdout",
         },
         "file_app": {
-            "formatter": "default",
-            "class": "logging.handlers.TimedRotatingFileHandler",
-            "filename": "/app/logs/app.log",
-            "when": "midnight",
-            "backupCount": 7,
+            "formatter": "detailed",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": f"{LOG_DIR}/app.log",
+            "maxBytes": 10485760,  # 10MB
+            "backupCount": 5,
+            "encoding": "utf-8",
         },
         "file_access": {
             "formatter": "access",
-            "class": "logging.handlers.TimedRotatingFileHandler",
-            "filename": "/app/logs/access.log",
-            "when": "midnight",
-            "backupCount": 7,
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": f"{LOG_DIR}/access.log",
+            "maxBytes": 10485760,  # 10MB
+            "backupCount": 5,
+            "encoding": "utf-8",
+        },
+        "file_error": {
+            "formatter": "detailed",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": f"{LOG_DIR}/error.log",
+            "maxBytes": 10485760,  # 10MB
+            "backupCount": 5,
+            "encoding": "utf-8",
+            "level": "ERROR",
         },
     },
     "loggers": {
         "": { # Root logger
-            "handlers": ["default", "file_app"],
-            "level": "DEBUG",
+            "handlers": ["default", "file_app", "file_error"],
+            "level": "INFO",
             "propagate": False
         },
         "uvicorn.error": {
-            "level": "DEBUG",
-            "handlers": ["default", "file_app"],
+            "level": "INFO",
+            "handlers": ["default", "file_app", "file_error"],
             "propagate": False
         },
         "uvicorn.access": {
             "handlers": ["access", "file_access"],
-            "level": "DEBUG",
+            "level": "INFO",
             "propagate": False,
         },
         "uvicorn": {
             "handlers": ["default", "file_app"],
-            "level": "DEBUG",
+            "level": "INFO",
             "propagate": False
-        }
+        },
+        "fastapi": {
+            "handlers": ["default", "file_app"],
+            "level": "INFO",
+            "propagate": False
+        },
+        "sqlalchemy": {
+            "handlers": ["default", "file_app"],
+            "level": "WARNING",
+            "propagate": False
+        },
+        "httpx": {
+            "handlers": ["default", "file_app"],
+            "level": "WARNING",
+            "propagate": False
+        },
+        "openai": {
+            "handlers": ["default", "file_app"],
+            "level": "WARNING",
+            "propagate": False
+        },
     },
 }
+
+# 로깅 설정이 로드될 때 로그 디렉토리 생성 확인
+print(f"📁 Log directory: {LOG_DIR}")
+print(f"📝 Log files will be created at: {LOG_DIR}/")
+
+# 로깅 설정을 간단하게 수정
+def get_simple_logging_config():
+    """간단한 로깅 설정을 반환합니다."""
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(levelname)s: %(asctime)s - %(name)s - %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+            "access": {
+                "format": "%(levelname)s: %(asctime)s - %(client_addr)s - \"%(request_line)s\" %(status_code)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "level": "INFO",
+            },
+            "file_app": {
+                "class": "logging.FileHandler",
+                "filename": f"{LOG_DIR}/app.log",
+                "formatter": "default",
+                "level": "INFO",
+                "encoding": "utf-8",
+            },
+            "file_access": {
+                "class": "logging.FileHandler",
+                "filename": f"{LOG_DIR}/access.log",
+                "formatter": "access",
+                "level": "INFO",
+                "encoding": "utf-8",
+            },
+            "file_error": {
+                "class": "logging.FileHandler",
+                "filename": f"{LOG_DIR}/error.log",
+                "formatter": "default",
+                "level": "ERROR",
+                "encoding": "utf-8",
+            },
+        },
+        "loggers": {
+            "": {
+                "handlers": ["console", "file_app", "file_error"],
+                "level": "INFO",
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "handlers": ["file_access"],
+                "level": "INFO",
+                "propagate": False,
+            },
+            "uvicorn.error": {
+                "handlers": ["console", "file_app", "file_error"],
+                "level": "INFO",
+                "propagate": False,
+            },
+        },
+    }

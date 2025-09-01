@@ -80,7 +80,6 @@ def _tool_key_for_merge(t: Any) -> str:
         pass
     return str(id(t))
 
-
 def _merge_tool_schemas(server_schemas: List[Any], client_schemas: Optional[List[Any]]) -> List[Any]:
     """
     서버에서 로드한 도구 스키마 + 클라이언트 도구 스키마 병합(중복 제거)
@@ -337,7 +336,7 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
 # -----------------------------
 # (옵션) RAG 연계
 # -----------------------------
-RAG_SERVICE_URL = "http://localhost:8001/api/v1/search"
+RAG_SERVICE_URL = "http://coe-ragpipeline:8001/api/v1/search"
 RAG_SCORE_THRESHOLD = 0.7
 
 

@@ -237,11 +237,14 @@ def _is_database_initialized():
     """데이터베이스가 이미 초기화되었는지 확인합니다."""
     try:
         inspector = inspect(engine)
-        # 'users'와 'analysis_requests' 같은 주요 테이블이 있는지 확인
-        required_tables = {'users', 'analysis_requests', 'chat_messages'}
+        # 주요 테이블이 있는지 확인 (users 테이블은 없으므로 제거)
+        required_tables = {'analysis_requests', 'chat_messages', 'conversation_summaries'}
         existing_tables = set(inspector.get_table_names())
         print(f"🔍 현재 데이터베이스에 존재하는 테이블: {existing_tables}")
-        return required_tables.issubset(existing_tables)
+        print(f"🔍 필요한 테이블: {required_tables}")
+        is_initialized = required_tables.issubset(existing_tables)
+        print(f"🔍 초기화 상태: {is_initialized}")
+        return is_initialized
     except Exception as e:
         # 데이터베이스 연결 실패 등 예외 발생 시 초기화되지 않은 것으로 간주
         print(f"⚠️ 데이터베이스 확인 중 오류 발생 (초기화 필요 가능성): {e}")
@@ -250,24 +253,38 @@ def _is_database_initialized():
 # 데이터베이스 초기화
 def init_database():
     """데이터베이스를 초기화합니다."""
-    # 이미 초기화되었다면 건너뛰기
-    if _is_database_initialized():
-        print("✅ 데이터베이스가 이미 초기화되었습니다. 건너뜁니다.")
+    print(f"🔄 CoE-Backend 데이터베이스 초기화 시작...")
+    print(f"📊 연결 정보: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+    
+    try:
+        # 이미 초기화되었다면 건너뛰기
+        if _is_database_initialized():
+            print("✅ 데이터베이스가 이미 초기화되었습니다. 건너뜁니다.")
+            return True
+        
+        print("🔄 데이터베이스 초기화가 필요합니다...")
+        
+        # 연결 테스트
+        if not test_connection():
+            print("❌ 데이터베이스 연결 테스트 실패")
+            return False
+        
+        # 테이블 생성
+        create_tables()
+        
+        # 초기화 완료 후 다시 확인 (테이블 생성 후 잠시 대기)
+        import time
+        time.sleep(1)
+        
+        if not _is_database_initialized():
+            print("❌ 초기화 후에도 데이터베이스 테이블이 확인되지 않았습니다.")
+            return False
+            
+        print("✅ 데이터베이스 초기화가 성공적으로 완료되었습니다.")
         return True
         
-    print("🔄 CoE-Backend 데이터베이스 초기화 중...")
-    
-    # 연결 테스트
-    if not test_connection():
+    except Exception as e:
+        print(f"❌ 데이터베이스 초기화 중 예외 발생: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-    
-    # 테이블 생성
-    create_tables()
-    
-    # 초기화 완료 후 다시 확인
-    if not _is_database_initialized():
-        print("❌ 초기화 후에도 데이터베이스 테이블이 확인되지 않았습니다.")
-        return False
-        
-    print("✅ 데이터베이스 초기화가 성공적으로 완료되었습니다.")
-    return True

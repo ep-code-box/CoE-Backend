@@ -10,29 +10,46 @@ class LangFlowService:
     
     @staticmethod
     def create_flow(db: Session, name: str, flow_data: Dict[str, Any], flow_id: str, description: Optional[str] = None) -> LangFlow:
-        """새로운 LangFlow를 생성합니다."""
+        """새로운 LangFlow를 생성하거나 기존 LangFlow를 업데이트합니다."""
         try:
-            # JSON 데이터를 문자열로 변환
+            # flow_id로 기존 LangFlow 조회
+            existing_flow = db.query(LangFlow).filter(LangFlow.flow_id == flow_id).first()
+
             flow_data_str = json.dumps(flow_data, ensure_ascii=False, indent=2)
-            
-            db_flow = LangFlow(
-                name=name,
-                description=description,
-                flow_data=flow_data_str,
-                flow_id=flow_id
-            )
-            
-            db.add(db_flow)
-            db.commit()
-            db.refresh(db_flow)
-            
-            return db_flow
-        except IntegrityError:
+
+            if existing_flow:
+                # 기존 LangFlow 업데이트
+                existing_flow.name = name
+                existing_flow.description = description
+                existing_flow.flow_data = flow_data_str
+                existing_flow.updated_at = datetime.utcnow()
+                db.commit()
+                db.refresh(existing_flow)
+                return existing_flow
+            else:
+                # 새로운 LangFlow 생성
+                db_flow = LangFlow(
+                    name=name,
+                    description=description,
+                    flow_data=flow_data_str,
+                    flow_id=flow_id
+                )
+                db.add(db_flow)
+                db.commit()
+                db.refresh(db_flow)
+                return db_flow
+        except IntegrityError as e:
             db.rollback()
-            raise ValueError(f"Flow with name '{name}' already exists")
+            # Duplicate entry for 'ix_langflows_flow_id' or 'ix_langflows_name'
+            if "ix_langflows_flow_id" in str(e):
+                raise ValueError(f"Flow with ID '{flow_id}' already exists.")
+            elif "ix_langflows_name" in str(e):
+                raise ValueError(f"Flow with name '{name}' already exists.")
+            else:
+                raise ValueError(f"Database integrity error: {str(e)}")
         except Exception as e:
             db.rollback()
-            raise Exception(f"Failed to create flow: {str(e)}")
+            raise Exception(f"Failed to create or update flow: {str(e)}")
     
     @staticmethod
     def get_flow_by_name(db: Session, name: str) -> Optional[LangFlow]:

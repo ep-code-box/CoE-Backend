@@ -33,7 +33,7 @@ class EmbeddingResponse(BaseModel):
     usage: EmbeddingUsage
 
 # Get RAG Pipeline URL from environment variable
-RAG_PIPELINE_URL = os.getenv("RAG_PIPELINE_URL", "http://localhost:8001") # Default to localhost:8001
+RAG_PIPELINE_URL = os.getenv("RAG_PIPELINE_URL", "http://coe-ragpipeline:8001") # Default to coe-ragpipeline:8001
 
 @router.post("/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(request: EmbeddingRequest):
