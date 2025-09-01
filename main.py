@@ -14,6 +14,7 @@ from api.health_api import router as health_router
 
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.embeddings_api import router as embeddings_router
+# from api.tools.dynamic_tools_api import dynamic_tools_api # REMOVE THIS IMPORT HERE
 
 from core.database import init_database
 from core.lifespan import lifespan
@@ -94,6 +95,11 @@ app.include_router(flows_router)
 app.include_router(coding_assistant_router)
 app.include_router(embeddings_router)
 app.include_router(chat_router)
+
+# Initialize and include dynamic_tools_api AFTER app is created
+from api.tools.dynamic_tools_api import DynamicToolsAPI # Import the class
+dynamic_tools_api_instance = DynamicToolsAPI() # Create instance here
+app.include_router(dynamic_tools_api_instance.router) # Include its router
 
 if __name__ == "__main__":
     import uvicorn

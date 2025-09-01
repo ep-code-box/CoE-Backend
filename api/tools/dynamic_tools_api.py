@@ -10,7 +10,7 @@ import json
 import logging
 
 from tools.core.loader import load_all_tools_dynamically as load_all_tools
-from core.schemas import ChatState
+from core.schemas import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class DynamicToolsAPI:
         async def execute_tool(request: ToolExecutionRequest):
             try:
                 # ChatState 구성
-                state = ChatState()
+                state = AgentState()
                 
                 # 메시지가 제공된 경우 사용, 아니면 기본 메시지 생성
                 if request.messages:

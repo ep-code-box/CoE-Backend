@@ -196,21 +196,28 @@ class FlowRead(BaseModel):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
     @root_validator(pre=True)
-    def map_db_to_api_fields(cls, values):
+    def map_db_to_api_fields(cls, obj):
         # When loading from the DB model, 'name' and 'flow_data' will be present.
-        if 'name' in values:
-            values['endpoint'] = values.pop('name')
-        if 'flow_data' in values:
-            # flow_data is a JSON string in the DB, parse it into a dict for the LangFlowJSON model.
-            flow_data_str = values.pop('flow_data')
+        # Create a dictionary from the ORM object's attributes
+        mapped_values = {}
+        if hasattr(obj, 'name'):
+            mapped_values['endpoint'] = obj.name
+        if hasattr(obj, 'flow_data'):
+            flow_data_str = obj.flow_data
             if isinstance(flow_data_str, str):
-                 values['flow_body'] = json.loads(flow_data_str)
-            else: # Already parsed
-                 values['flow_body'] = flow_data_str
-        return values
+                 mapped_values['flow_body'] = json.loads(flow_data_str)
+            else:
+                 mapped_values['flow_body'] = flow_data_str
+        
+        # Copy other attributes directly
+        for attr in ['id', 'description', 'flow_id', 'is_active', 'created_at', 'updated_at']:
+            if hasattr(obj, attr):
+                mapped_values[attr] = getattr(obj, attr)
+
+        return mapped_values
 
 
 class ErrorResponse(BaseModel):
