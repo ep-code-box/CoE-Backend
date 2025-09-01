@@ -31,7 +31,10 @@ RUN uv pip install --system --no-cache -r requirements.in
 COPY . .
 
 # 6. 로그 디렉토리 생성 및 권한 설정
-RUN mkdir -p /app/logs && chmod 755 /app/logs
+RUN mkdir -p /app/logs && \
+    chmod 777 /app/logs && \
+    touch /app/logs/app.log /app/logs/access.log /app/logs/error.log && \
+    chmod 666 /app/logs/*.log
 
 # 7. 로그 설정 스크립트 실행 권한 부여
 RUN chmod +x /app/scripts/setup_logs.sh
@@ -39,9 +42,9 @@ RUN chmod +x /app/scripts/setup_logs.sh
 # 8. 로그 디렉토리 권한 확인
 RUN ls -la /app/logs
 
-# 8. 포트 노출
+# 9. 포트 노출
 EXPOSE 8000
 
-# 9. 컨테이너 실행 시 실행할 명령어
+# 10. 컨테이너 실행 시 실행할 명령어
 # 로그 설정 후 uvicorn을 사용하여 프로덕션 환경에서 직접 FastAPI 앱 실행
 CMD ["sh", "-c", "/app/scripts/setup_logs.sh && uvicorn main:app --host 0.0.0.0 --port 8000"]
