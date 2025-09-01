@@ -91,11 +91,13 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
 
     if tool_calls:
         logger.info(f"--- LLM requested {len(tool_calls)} tool calls ---")
+        server_tool_executed = False
 
         # 서버에서 실행할 도구만 골라서 실행
         for tc in tool_calls:
             fn_name = _extract_tool_name(tc)
             if fn_name in all_server_funcs:
+                server_tool_executed = True
                 fn = all_server_funcs[fn_name]
                 try:
                     fn_args = _extract_tool_args(tc)
@@ -115,23 +117,12 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                         "name": fn_name,
                         "content": f"Error executing tool: {e}",
                     })
-            else:
-                # 서버에서 실행할 도구가 아니면, 클라이언트가 처리하도록 assistant tool_call만 남김
-                tool_call_id = getattr(tc, "id", tc.get("id") if isinstance(tc, dict) else f"call_{uuid.uuid4().hex}")
-                args = _extract_tool_args(tc)
-                history.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [{
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {"name": fn_name, "arguments": json.dumps(args, ensure_ascii=False)},
-                    }],
-                })
+            # 클라이언트 도구는 이미 history에 tool_calls로 포함되어 있으므로 별도 처리 불필요
 
-        # 서버 도구 실행 결과 반영 후, 최종 답변 1회 정제
-        logger.info("--- Calling LLM again with server-side tool results ---")
-        second = default_llm_client.chat.completions.create(model=model_id, messages=history)
-        history.append(second.choices[0].message.model_dump())
+        # 서버 도구가 하나라도 실행된 경우에만 LLM을 다시 호출하여 결과 정제
+        if server_tool_executed:
+            logger.info("--- Calling LLM again with server-side tool results ---")
+            second = default_llm_client.chat.completions.create(model=model_id, messages=history)
+            history.append(second.choices[0].message.model_dump())
 
     return {"history": history}

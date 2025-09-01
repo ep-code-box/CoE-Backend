@@ -29,25 +29,32 @@ LOGGING_CONFIG = {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stdout",
         },
+        "file": {
+            "formatter": "default",
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "filename": "app.log",
+            "when": "midnight",
+            "backupCount": 7,
+        },
     },
     "loggers": {
         "": { # Root logger
-            "handlers": ["default"],
+            "handlers": ["default", "file"],
             "level": "DEBUG",
             "propagate": False
         },
         "uvicorn.error": {
             "level": "DEBUG",
-            "handlers": ["default"],
+            "handlers": ["default", "file"],
             "propagate": False
         },
         "uvicorn.access": {
-            "handlers": ["access"],
+            "handlers": ["access", "file"],
             "level": "DEBUG",
             "propagate": False,
         },
         "uvicorn": {
-            "handlers": ["default"],
+            "handlers": ["default", "file"],
             "level": "DEBUG",
             "propagate": False
         }
