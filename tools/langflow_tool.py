@@ -3,7 +3,7 @@ import os
 from typing import Dict, Any, Optional, List
 from core.schemas import AgentState
 from core.database import SessionLocal
-from services.db_service import LangFlowService
+from services.db_langflow_service import LangFlowService
 
 # LangFlow 실행 도구 설명 (registry.py에서 수집되지 않도록 _description으로 끝나지 않게 명명)
 langflow_execute_config = {

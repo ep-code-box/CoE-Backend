@@ -32,7 +32,7 @@ LOGGING_CONFIG = {
         "file": {
             "formatter": "default",
             "class": "logging.handlers.TimedRotatingFileHandler",
-            "filename": "app.log",
+            "filename": "/app/logs/app.log",
             "when": "midnight",
             "backupCount": 7,
         },

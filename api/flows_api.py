@@ -6,7 +6,7 @@ from core import schemas
 from core.database import get_db
 from services import flow_service
 from services.flow_router_service import FlowRouterService
-from services.db_service import LangFlowService
+from services.db_langflow_service import LangFlowService
 
 # Dependency to get the router service from the app state
 def get_flow_router_service(request: Request) -> FlowRouterService:

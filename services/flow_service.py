@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 
 from core import schemas
 from core.database import LangflowToolMapping
-from services.db_service import LangFlowService
+from services.db_langflow_service import LangFlowService
 from services.flow_router_service import FlowRouterService
 
 # Instantiate the service to use its methods

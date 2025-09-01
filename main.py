@@ -15,9 +15,9 @@ from api.health_api import router as health_router
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.embeddings_api import router as embeddings_router
 
-# from api.tools.dynamic_tools_api import router as dynamic_tools_router
 from core.database import init_database
 from core.lifespan import lifespan
+from core.logging_config import LOGGING_CONFIG
 
 
 # 데이터베이스 초기화
@@ -81,55 +81,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. 보안 헤더 미들웨어 - 임시 비활성화
-# app.add_middleware(SecurityHeadersMiddleware)
-
-# 3. 요청 로깅 미들웨어 - uvicorn과 중복되므로 완전 비활성화
-# RequestLoggingMiddleware는 uvicorn의 기본 로깅과 중복되므로 사용하지 않음
-# if os.getenv("APP_ENV") == "development":
-#     app.add_middleware(RequestLoggingMiddleware, log_body=True)
-
-# 4. 속도 제한 미들웨어 - 임시 비활성화
-# rate_limit = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
-# app.add_middleware(RateLimitMiddleware, calls_per_minute=rate_limit)
-
-
-
-# 로깅 설정: 모든 로그를 하나의 핸들러로 처리
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True  # 기존 설정 덮어쓰기
-)
-logger = logging.getLogger(__name__)
-
-# tool_tracker 로거는 이제 기본 로깅 설정을 따르도록 propagate=True (기본값) 유지
-# 별도의 핸들러를 추가하지 않음
-tool_logger = logging.getLogger("tool_tracker")
-tool_logger.setLevel(logging.INFO) # tool_tracker 로거의 레벨 설정
-tool_logger.propagate = True # 루트 로거로 전파
-
-# uvicorn 로거 설정 조정 (중복 로그 방지)
-uvicorn_logger = logging.getLogger("uvicorn.access")
-uvicorn_logger.disabled = False  # uvicorn 로그는 유지
-
-# 루트 로거의 핸들러 중복 방지 (basicConfig가 이미 처리하지만, 혹시 모를 경우 대비)
-root_logger = logging.getLogger()
-if len(root_logger.handlers) > 1:
-    for handler in root_logger.handlers[1:]:
-        root_logger.removeHandler(handler)
-
-# 요청 로깅 미들웨어 (디버깅용) - 임시 비활성화
-# @app.middleware("http")
-# async def log_requests(request: Request, call_next):
-#     logger.info(f"Request: {request.method} {request.url}")
-#     logger.info(f"Headers: {dict(request.headers)}")
-#     
-#     response = await call_next(request)
-#     
-#     logger.info(f"Response status: {response.status_code}")
-#     return response
-
 # 에이전트 정보 설정
 set_agent_info(agent, agent_model_id)
 
@@ -142,7 +93,6 @@ app.include_router(models_router)
 app.include_router(flows_router)
 app.include_router(coding_assistant_router)
 app.include_router(embeddings_router)
-# app.include_router(dynamic_tools_router)  # 동적 도구 API 라우터 추가
 app.include_router(chat_router)
 
 if __name__ == "__main__":
@@ -160,6 +110,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0", port=8000, reload=is_development,
+        log_config=LOGGING_CONFIG,
         reload_dirs=["api", "config","core", "routers", "services", "flows", "tools", "utils"],  # 감시할 디렉토리 지정
         reload_excludes=[".*", ".py[cod]", "__pycache__", ".env", ".venv", ".git", "output","gitsync"]  # 감시를 제외할 파일 지정
     )

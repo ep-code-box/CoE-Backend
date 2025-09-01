@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, List
 from core.schemas import AgentState
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from tools.utils import is_git_url_reachable # Assuming this utility is available
+from tools.core.utils import is_git_url_reachable # Assuming this utility is available
 
 # RAG Pipeline의 기본 URL (환경 변수 또는 설정 파일에서 가져오는 것이 좋음)
 RAG_PIPELINE_BASE_URL = os.getenv("RAG_PIPELINE_BASE_URL", "http://localhost:8001")

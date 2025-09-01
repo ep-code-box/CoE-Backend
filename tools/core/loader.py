@@ -13,7 +13,7 @@ TOOLS_BASE_DIR = "tools"
 def load_all_tools_dynamically() -> Tuple[Dict[str, Callable], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     `tools` 디렉토리에서 모든 도구를 동적으로 로드하여 반환합니다.
-    기존 `tools.registry.load_all_tools`와 동일한 데이터 구조를 반환하여 호환성을 유지합니다.
+    기존 `tools.core.registry.load_all_tools`와 동일한 데이터 구조를 반환하여 호환성을 유지합니다.
 
     Returns:
         - all_nodes: {tool_name: node_function} 딕셔너리

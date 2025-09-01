@@ -41,3 +41,5 @@ server.log
 .env.docker
 
 .pytest_cache
+*.log
+.ruff_cache

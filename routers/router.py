@@ -8,7 +8,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from core.schemas import ChatState
 from core.llm_client import client, default_model
-from tools.utils import extract_git_url, find_last_user_message
+from tools.core.utils import extract_git_url, find_last_user_message
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def router_node(state: ChatState, tool_descriptions: List[Dict[str, Any]], model
 3. 그 외 사용자의 요청에 URL이 포함되어 있고, 해당 URL의 내용을 분석하거나 특정 정보를 추출하는 것이 목적이라면, URL을 처리할 수 있는 도구를 우선적으로 고려하세요.
 4. 사용자의 입력에서 URL을 주의 깊게 찾아내고, 해당 URL이 어떤 도구와 관련될 수 있는지 판단하세요.
 
-응답은 반드시 다음 JSON 형식이어야 합니다: {{"next_tool": "선택한 도구"}} """
+응답은 반드시 다음 JSON 형식이어야 합니다: {{'next_tool': '선택한 도구'}} """  
 
     prompt_messages = state["messages"] + [
         {"role": "system", "content": system_prompt}
