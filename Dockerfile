@@ -38,4 +38,4 @@ EXPOSE 8000
 
 # 6. 컨테이너 실행 시 실행할 명령어
 # uvicorn을 사용하여 프로덕션 환경에서 직접 FastAPI 앱 실행
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "core/logging_config.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
