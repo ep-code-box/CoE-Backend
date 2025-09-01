@@ -27,6 +27,9 @@ COPY requirements.in .
 # chroma-hnswlib 빌드 오류 방지를 위해 HNSWLIB_NO_NATIVE=1 환경 변수를 설정합니다.
 RUN uv pip install --system --no-cache -r requirements.in
 
+# Create logs directory
+RUN mkdir -p /app/logs
+
 # 5. 소스 코드 복사
 COPY . .
 
