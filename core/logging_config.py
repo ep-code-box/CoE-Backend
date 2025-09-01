@@ -29,7 +29,7 @@ LOGGING_CONFIG = {
     "formatters": {
         "default": {
             "()": "uvicorn.logging.DefaultFormatter",
-            "fmt": "%(levelname)s:     %(asctime)s - %(name)s - %(message)s",
+            "fmt": "%(levelname)s: %(asctime)s - %(name)s - %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
         },
         "access": {
@@ -54,7 +54,7 @@ LOGGING_CONFIG = {
             "stream": "ext://sys.stdout",
         },
         "file_app": {
-            "formatter": "detailed",
+            "formatter": "default",
             "class": "logging.handlers.RotatingFileHandler",
             "filename": f"{LOG_DIR}/app.log",
             "maxBytes": 10485760,  # 10MB
@@ -70,7 +70,7 @@ LOGGING_CONFIG = {
             "encoding": "utf-8",
         },
         "file_error": {
-            "formatter": "detailed",
+            "formatter": "default",
             "class": "logging.handlers.RotatingFileHandler",
             "filename": f"{LOG_DIR}/error.log",
             "maxBytes": 10485760,  # 10MB
@@ -124,68 +124,6 @@ LOGGING_CONFIG = {
 }
 
 # 로깅 설정이 로드될 때 로그 디렉토리 생성 확인
-print(f"📁 Log directory: {LOG_DIR}")
-print(f"📝 Log files will be created at: {LOG_DIR}/")
-
-# 로깅 설정을 간단하게 수정
-def get_simple_logging_config():
-    """간단한 로깅 설정을 반환합니다."""
-    return {
-        "version": 1,
-        "disable_existing_loggers": False,
-        "formatters": {
-            "default": {
-                "format": "%(levelname)s: %(asctime)s - %(name)s - %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
-            "access": {
-                "format": "%(levelname)s: %(asctime)s - %(client_addr)s - \"%(request_line)s\" %(status_code)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
-        },
-        "handlers": {
-            "console": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-                "level": "INFO",
-            },
-            "file_app": {
-                "class": "logging.FileHandler",
-                "filename": f"{LOG_DIR}/app.log",
-                "formatter": "default",
-                "level": "INFO",
-                "encoding": "utf-8",
-            },
-            "file_access": {
-                "class": "logging.FileHandler",
-                "filename": f"{LOG_DIR}/access.log",
-                "formatter": "access",
-                "level": "INFO",
-                "encoding": "utf-8",
-            },
-            "file_error": {
-                "class": "logging.FileHandler",
-                "filename": f"{LOG_DIR}/error.log",
-                "formatter": "default",
-                "level": "ERROR",
-                "encoding": "utf-8",
-            },
-        },
-        "loggers": {
-            "": {
-                "handlers": ["console", "file_app", "file_error"],
-                "level": "INFO",
-                "propagate": False,
-            },
-            "uvicorn.access": {
-                "handlers": ["file_access"],
-                "level": "INFO",
-                "propagate": False,
-            },
-            "uvicorn.error": {
-                "handlers": ["console", "file_app", "file_error"],
-                "level": "INFO",
-                "propagate": False,
-            },
-        },
-    }
+logging.basicConfig(level=logging.INFO)
+logging.info(f"📁 Log directory: {LOG_DIR}")
+logging.info(f"📝 Log files will be created at: {LOG_DIR}/")

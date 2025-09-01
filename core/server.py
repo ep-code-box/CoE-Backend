@@ -2,8 +2,9 @@ import os
 import logging.config
 import uvicorn
 from dotenv import load_dotenv
-from core.logging_config import get_simple_logging_config
+from core.logging_config import LOGGING_CONFIG
 
+logger = logging.getLogger(__name__)
 
 class ServerRunner:
     """서버 실행을 담당하는 클래스"""
@@ -15,13 +16,8 @@ class ServerRunner:
     
     def load_environment(self):
         """환경 변수 로드 및 설정"""
-        # .env 파일 로드 (개발 환경에서만 필요)
         load_dotenv()
-        
-        # 환경 변수를 통해 개발 모드와 프로덕션 모드를 구분
         self.is_development = os.getenv("APP_ENV") == "development"
-        
-        # 포트 설정 (환경 변수에서 가져오거나 기본값 사용)
         port_env = os.getenv("PORT")
         if port_env:
             self.port = int(port_env)
@@ -44,11 +40,10 @@ class ServerRunner:
         """서버 실행"""
         self.load_environment()
         
-        print(f"🚀 Starting server in {'development (hot-reload enabled)' if self.is_development else 'production'} mode.")
-        print(f"📍 Server will be available at http://{self.host}:{self.port}")
+        logging.config.dictConfig(LOGGING_CONFIG)
         
-        # 로깅 설정을 uvicorn에 직접 전달
-        log_config = get_simple_logging_config()
+        logger.info(f"🚀 Starting server in {'development (hot-reload enabled)' if self.is_development else 'production'} mode.")
+        logger.info(f"📍 Server will be available at http://{self.host}:{self.port}")
         
         uvicorn.run(
             "main:app",
@@ -58,16 +53,13 @@ class ServerRunner:
             reload_dirs=self.get_reload_dirs() if self.is_development else None,
             reload_excludes=self.get_reload_excludes() if self.is_development else None,
             access_log=True,
-            log_level="info",
-            log_config=log_config
+            log_config=LOGGING_CONFIG
         )
-
 
 def run_server():
     """서버 실행 함수"""
     runner = ServerRunner()
     runner.run()
-
 
 if __name__ == "__main__":
     run_server()

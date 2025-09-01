@@ -31,21 +31,20 @@ class AppFactory:
     
     def initialize_database(self):
         """데이터베이스 초기화"""
-        print("🔄 Initializing database...")
+        logging.info("🔄 Initializing database...")
         if init_database():
-            print("✅ Database initialized successfully")
-            logging.info("Application started and database initialized.")
+            logging.info("✅ Database initialized successfully")
             return True
         else:
-            print("❌ Database initialization failed")
+            logging.error("❌ Database initialization failed")
             return False
     
     def build_agents(self):
         """에이전트 그래프 구성 및 생성"""
-        print("🤖 Building agent graphs...")
+        logging.info("🤖 Building agent graphs...")
         self.agent, self.tool_descriptions, self.agent_model_id = build_agent_graph()
         self.aider_agent, self.aider_tool_descriptions, self.aider_agent_model_id = build_aider_agent_graph()
-        print("✅ Agent graphs built successfully")
+        logging.info("✅ Agent graphs built successfully")
     
     def create_app(self) -> FastAPI:
         """FastAPI 애플리케이션 생성 및 설정"""
@@ -162,7 +161,6 @@ class AppFactory:
         # 채팅 API는 마지막에 등록
         from api.chat_api import router as chat_router
         app.include_router(chat_router)
-
 
 def create_app() -> FastAPI:
     """애플리케이션 팩토리를 사용하여 FastAPI 앱 생성"""
