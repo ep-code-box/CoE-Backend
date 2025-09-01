@@ -18,22 +18,17 @@ router = APIRouter(
 )
 
 @router.post("/", response_model=schemas.FlowRead, status_code=status.HTTP_201_CREATED)
-def create_new_flow(
+def create_or_update_flow(
     flow: schemas.FlowCreate, 
     db: Session = Depends(get_db),
     router_service: FlowRouterService = Depends(get_flow_router_service)
 ):
     """
-    Register a new LangFlow, save it to the database, and dynamically expose its endpoint.
+    Create a new LangFlow or update an existing one.
+    - If a `front_tool_name` is provided and it already exists, the corresponding flow is updated.
+    - Otherwise, a new flow is created.
     """
-    db_flow = LangFlowService.get_flow_by_name(db, name=flow.endpoint)
-    if db_flow:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Endpoint '{flow.endpoint}' already registered."
-        )
-    
-    return flow_service.create_and_register_flow(
+    return flow_service.upsert_flow(
         db=db, flow_create_schema=flow, router_service=router_service
     )
 
