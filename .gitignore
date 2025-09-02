@@ -43,3 +43,5 @@ server.log
 .pytest_cache
 *.log
 .ruff_cache
+
+.DS_Store

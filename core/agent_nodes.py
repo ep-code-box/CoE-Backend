@@ -92,8 +92,9 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     if tool_calls:
         logger.info(f"--- LLM requested {len(tool_calls)} tool calls ---")
         server_tool_executed = False
+        has_client_tool_call = False  # 클라이언트 도구 호출 여부 플래그
 
-        # 서버에서 실행할 도구만 골라서 실행
+        # 서버에서 실행할 도구와 클라이언트 도구를 구분하여 처리
         for tc in tool_calls:
             fn_name = _extract_tool_name(tc)
             if fn_name in all_server_funcs:
@@ -117,10 +118,13 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                         "name": fn_name,
                         "content": f"Error executing tool: {e}",
                     })
-            # 클라이언트 도구는 이미 history에 tool_calls로 포함되어 있으므로 별도 처리 불필요
+            else:
+                # 클라이언트 도구 호출이 있으면 플래그 설정
+                has_client_tool_call = True
+                logger.info(f"Client-side tool requested: {fn_name}. Deferring to client.")
 
-        # 서버 도구가 하나라도 실행된 경우에만 LLM을 다시 호출하여 결과 정제
-        if server_tool_executed:
+        # 서버 도구가 실행되었고, 클라이언트 도구 호출이 없는 경우에만 LLM을 다시 호출
+        if server_tool_executed and not has_client_tool_call:
             logger.info("--- Calling LLM again with server-side tool results ---")
             second = default_llm_client.chat.completions.create(model=model_id, messages=history)
             history.append(second.choices[0].message.model_dump())
