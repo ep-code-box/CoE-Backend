@@ -45,3 +45,4 @@ server.log
 .ruff_cache
 
 .DS_Store
+*.bak
