@@ -57,7 +57,7 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
         llm_kwargs["tools"] = combined_tool_schemas
         llm_kwargs["tool_choice"] = "auto"
 
-    response = llm_client.chat.completions.create(**llm_kwargs)
+    response = await llm_client.chat.completions.create(**llm_kwargs)
     response_message = response.choices[0].message
     history.append(response_message.model_dump())
 
@@ -127,7 +127,7 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
         # 서버 도구가 실행되었고, 클라이언트 도구 호출이 없는 경우에만 LLM을 다시 호출
         if server_tool_executed and not has_client_tool_call:
             logger.info("--- Calling LLM again with server-side tool results ---")
-            second = default_llm_client.chat.completions.create(model=model_id, messages=history)
+            second = await default_llm_client.chat.completions.create(model=model_id, messages=history)
             history.append(second.choices[0].message.model_dump())
 
     return {"history": history}
