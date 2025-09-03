@@ -82,27 +82,27 @@ LOGGING_CONFIG = {
     "loggers": {
         "": { # Root logger
             "handlers": ["default", "file_app", "file_error"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False
         },
         "uvicorn.error": {
-            "level": "INFO",
+            "level": "DEBUG",
             "handlers": ["default", "file_app", "file_error"],
             "propagate": False
         },
         "uvicorn.access": {
             "handlers": ["access", "file_access"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False,
         },
         "uvicorn": {
             "handlers": ["default", "file_app"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False
         },
         "fastapi": {
             "handlers": ["default", "file_app"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False
         },
         "sqlalchemy": {
@@ -124,6 +124,6 @@ LOGGING_CONFIG = {
 }
 
 # 로깅 설정이 로드될 때 로그 디렉토리 생성 확인
-logging.basicConfig(level=logging.INFO)
-logging.info(f"📁 Log directory: {LOG_DIR}")
-logging.info(f"📝 Log files will be created at: {LOG_DIR}/")
+logging.basicConfig(level=logging.DEBUG)
+logging.debug(f"📁 Log directory: {LOG_DIR}")
+logging.debug(f"📝 Log files will be created at: {LOG_DIR}/")

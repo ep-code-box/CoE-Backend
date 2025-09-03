@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     """
-    front_tool_name은 UI 컨텍스트 식별자다. 
+    context는 UI 컨텍스트 식별자다.
     -> 해당 컨텍스트에 맞는 도구 세트를 로드하고
     -> LLM이 실제 도구를 선택/호출하도록 한다.
     -> 선택된 '실제 도구 이름'으로만 실행한다.
@@ -28,26 +28,27 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     logger = logging.getLogger(__name__)
 
     # ---- 상태 추출 ----
-    front_tool_name = state.get("front_tool_name")
     tool_input = state.get("tool_input") or {}
     history = state["history"]
     model_id = state["model_id"]
 
-    # front_tool_name을 실행 기준이 아닌 "컨텍스트"로만 사용
-    context = front_tool_name or state.get("context") or "default"
-    client_tools = state.get("tools", []) or []  # 클라이언트가 보낸 tool 스키마(있으면)
+    # context를 실행 기준으로 사용
+    context = state.get("context") or "default"
+    # chat_api에서 병합된 도구 목록
+    resolved_tools = state.get("tools", []) or [] 
 
-    # ---- 서버 도구 세트 로드 ----
-    server_tool_schemas, server_tool_functions = tool_dispatcher.get_available_tools_for_context(context)
-    client_tool_schemas = [t if isinstance(t, dict) else getattr(t, "model_dump", lambda **_: t)() for t in client_tools]
-    combined_tool_schemas = client_tool_schemas + server_tool_schemas
+    # ---- 서버 도구 함수 로드 ----
+    # 스키마는 이미 chat_api에서 병합되었으므로, 여기서는 실행할 함수만 가져온다.
+    _schemas, server_tool_functions = tool_dispatcher.get_available_tools_for_context(context)
+    
+    # Pydantic 모델을 dict로 변환
+    combined_tool_schemas = [t if isinstance(t, dict) else t.model_dump(exclude_none=True) for t in resolved_tools]
 
     # LLM 클라이언트 선택
     llm_client = get_client_for_model(model_id)
 
     logger.info(
-        f"--- Calling LLM with {len(combined_tool_schemas)} tools "
-        f"({len(client_tool_schemas)} client, {len(server_tool_schemas)} server) for context '{context}' ---"
+        f"--- Calling LLM with {len(combined_tool_schemas)} tools for context '{context}' ---"
     )
 
     # tools/tool_choice에 None을 넣지 않도록 kwargs 동적 구성

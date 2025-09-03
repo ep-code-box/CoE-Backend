@@ -2,7 +2,7 @@
 채팅 관련 API 엔드포인트들을 담당하는 모듈입니다.
 
 리팩토링 핵심
-- front_tool_name(프론트 UI 구분자)에 맞춰 서버 도구 세트를 로드(get_available_tools_for_context)
+- context(프론트 UI 구분자)에 맞춰 서버 도구 세트를 로드(get_available_tools_for_context)
 - 클라이언트 제공 tools와 병합 후 LangGraph Agent에 전달
 - LLM 프록시 호출 시 tools/tool_choice의 None 제거 및 교차 검증 (타사 OpenAI 호환 게이트웨이 400 방지)
 - BadRequest는 가능하면 400으로 패스스루, 기타 예외는 500
@@ -12,6 +12,9 @@ import time
 import uuid
 import logging
 import httpx
+import re
+from datetime import datetime
+import json
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -32,6 +35,7 @@ except Exception:
     OPENAI_IMPORTED = False
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 router = APIRouter(tags=["🤖 AI Chat"], prefix="/v1")
 
@@ -90,10 +94,10 @@ def _merge_tool_schemas(server_schemas: List[Any], client_schemas: Optional[List
         merged[_tool_key_for_merge(t)] = t
     return list(merged.values())
 
-
 async def _get_or_create_session_and_history(
     req: OpenAIChatRequest, chat_service: ChatService, request: Request
 ):
+
     session = chat_service.get_or_create_session(
         session_id=req.session_id,
         user_agent=request.headers.get("User-Agent"),
@@ -147,7 +151,7 @@ async def _log_and_save_messages(
         request_data={
             "model": req.model,
             "message_count": len(req.messages),
-            "front_tool_name": req.front_tool_name,
+            "context": req.context,
         },
         response_status=response_status,
         response_time_ms=response_time_ms,
@@ -165,9 +169,10 @@ async def handle_agent_request(
     request: Request,
     db: Session,
 ):
+    logger.debug("Entering handle_agent_request function.")
     """
     LangGraph 에이전트 요청 처리
-    - front_tool_name(UI 구분자)에 맞춰 서버 도구 세트 로드(get_available_tools_for_context)
+    - context(UI 구분자)에 맞춰 서버 도구 세트 로드(get_available_tools_for_context)
     - 클라이언트 제공 tools와 병합하여 Agent에 전달
     """
     start_time = time.time()
@@ -177,7 +182,7 @@ async def handle_agent_request(
         req, chat_service, request
     )
 
-    # 1) front_tool_name 기반 서버 도구 스키마 로드
+    # 1) context 기반 서버 도구 스키마 로드
     server_schemas: List[Any] = []
     try:
         from services import tool_dispatcher  # 프로젝트의 dispatcher
@@ -185,15 +190,15 @@ async def handle_agent_request(
         if hasattr(tool_dispatcher, "get_available_tools_for_context"):
             # (schemas, functions) 튜플을 반환하므로 schemas만 사용
             server_schemas, _functions = tool_dispatcher.get_available_tools_for_context(
-                req.front_tool_name or ""
+                req.context or ""
             )
             logger.info(
-                f"[TOOLS] context='{req.front_tool_name}' → server_schemas={len(server_schemas)}"
+                f"[TOOLS] context='{req.context}' → server_schemas={len(server_schemas)}"
             )
         else:
             logger.info("tool_dispatcher.get_available_tools_for_context 가 없어 서버 도구 로딩을 생략합니다.")
     except Exception as e:
-        logger.warning(f"서버 도구 로딩 실패(front='{req.front_tool_name}'): {e}")
+        logger.warning(f"서버 도구 로딩 실패(context='{req.context}'): {e}")
 
     # 2) 클라이언트 도구와 병합
     resolved_tools = _merge_tool_schemas(server_schemas, req.tools)
@@ -206,17 +211,16 @@ async def handle_agent_request(
         session_id=current_session_id,
         model_id=req.model,
         group_name=req.group_name,
-        front_tool_name=req.front_tool_name,  # UI 컨텍스트: 에이전트 내부 분기/로깅에 활용
         tool_input=req.tool_input,
-        context=req.context,
+        context=req.context, # UI 컨텍스트: 에이전트 내부 분기/로깅에 활용
         tools=resolved_tools,
     )
 
     try:
         logger.info(
-            "Invoking agent | model='%s' front='%s' history=%d tools=%d",
+            "Invoking agent | model='%s' context='%s' history=%d tools=%d",
             agent_state["model_id"],
-            agent_state.get("front_tool_name"),
+            agent_state.get("context"),
             len(agent_state["history"]),
             len(agent_state.get("tools") or []),
         )

@@ -185,6 +185,99 @@ endpoints = {
 
 ---
 
+## 튜토리얼: '만 나이 계산기' 만들어보기
+
+이론만으로는 지루할 수 있으니, 간단한 '만 나이 계산기' 도구를 함께 만들어보며 전체 과정을 익혀보겠습니다.
+
+### 목표
+
+사용자가 "1995년 3월 15일생은 몇 살이야?"라고 물으면, 만 나이를 계산해서 "생년월일 1995-03-15 기준, 만 나이는 X세입니다."라고 대답하는 도구를 만듭니다.
+
+### 1단계: 로직 파일 `age_calculator_tool.py` 생성
+
+먼저 `/tools` 폴더에 `age_calculator_tool.py` 파일을 생성하고 아래 내용을 채웁니다.
+
+```python
+from typing import Dict, Any, List, Optional
+from core.schemas import AgentState
+from datetime import datetime
+
+# 1. 'run' 함수 (필수)
+async def run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> Dict[str, Any]:
+    """생년월일을 기준으로 만 나이를 계산합니다."""
+    if not tool_input or 'birth_date' not in tool_input:
+        return {"messages": [{"role": "assistant", "content": "생년월일을 'YYYY-MM-DD' 형식으로 알려주세요."}]}
+
+    try:
+        birth_date_str = tool_input['birth_date']
+        birth_date = datetime.strptime(birth_date_str, "%Y-%m-%d")
+        today = datetime.today()
+        
+        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        
+        result_message = f"생년월일 {birth_date_str} 기준, 만 나이는 {age}세입니다."
+        return {"messages": [{"role": "assistant", "content": result_message}]}
+
+    except ValueError:
+        return {"messages": [{"role": "assistant", "content": "생년월일 형식이 잘못되었습니다. 'YYYY-MM-DD' 형식으로 입력해주세요."}]}
+
+# 2. 'available_tools' 변수 (필수)
+age_calculator_tool_schema = {
+    "type": "function",
+    "function": {
+        "name": "calculate_international_age",
+        "description": "주어진 생년월일(YYYY-MM-DD)을 기준으로 만 나이를 계산합니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "birth_date": {
+                    "type": "string",
+                    "description": "계산할 생년월일. YYYY-MM-DD 형식입니다."
+                }
+            },
+            "required": ["birth_date"]
+        }
+    }
+}
+
+available_tools: List[Dict[str, Any]] = [age_calculator_tool_schema]
+
+# 3. 'tool_functions' 변수 (필수)
+tool_functions: Dict[str, callable] = {
+    "calculate_international_age": run
+}
+```
+- **핵심 로직**: `run` 함수는 `datetime` 라이브러리를 사용해 오늘 날짜와 생년월일을 비교하여 만 나이를 계산합니다.
+- **AI와의 소통**: `available_tools` 스키마는 AI에게 이 도구의 이름(`calculate_international_age`), 기능 설명, 그리고 필요한 파라미터(`birth_date`)가 무엇인지 명확히 알려줍니다.
+
+### 2단계: 매핑 파일 `age_calculator_map.py` 생성
+
+같은 위치에 `age_calculator_map.py` 파일을 생성하고, 이 도구가 어떤 환경에서 사용될지 정의합니다.
+
+```python
+# 이 도구가 사용될 수 있는 컨텍스트를 정의합니다.
+tool_contexts = [
+    "aider",
+    "openWebUi"
+]
+
+# 도구를 직접 호출할 수 있는 API 엔드포인트를 정의합니다. (선택 사항)
+endpoints = {
+    "calculate_international_age": "/tools/calculate-age"
+}
+```
+- **`tool_contexts`**: 이 도구가 `aider`와 `openWebUi` 컨텍스트에서 활성화되도록 설정했습니다.
+
+### 3단계: 테스트
+
+이제 모든 준비가 끝났습니다! 에이전트에게 다음과 같이 질문해 보세요.
+
+> "1995년 3월 15일생 만 나이 알려줘"
+
+에이전트는 우리 의도대로 `calculate_international_age` 도구를 찾아 실행하고, 계산된 나이를 답변해 줄 것입니다. 이처럼 새로운 기능을 도구로 만들어 쉽게 확장할 수 있습니다.
+
+---
+
 ## 도구 실행 예시 (cURL)
 
 ### 1. 에이전트를 통한 실행 (권장)
