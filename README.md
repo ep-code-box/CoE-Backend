@@ -36,12 +36,12 @@
 3.  **Docker Compose 실행**:
     프로젝트 최상위 디렉토리에서 아래 명령어를 실행합니다.
     ```bash
-    docker-compose up --build -d
+    docker compose up --build -d
     ```
 
 4.  **로그 확인**:
     ```bash
-    docker-compose logs -f coe-backend
+    docker compose logs -f coe-backend
     ```
 
 ## 4. API 사용 예시
@@ -51,7 +51,7 @@
 `curl`을 사용하여 에이전트에게 직접 작업을 요청할 수 있습니다. `context` 필드를 통해 현재 사용 중인 클라이언트 환경을 알려주면, 에이전트가 해당 환경에 맞는 도구들을 활성화합니다.
 
 ```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
+curl -X POST "http://localhost/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d {
     "model": "ax4",
@@ -81,8 +81,8 @@ CoE-Backend/
 
 서버 실행 후 다음 URL에서 상세한 API 문서를 확인할 수 있습니다:
 
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **Swagger UI**: [http://localhost/docs](http://localhost/docs)
+- **ReDoc**: [http://localhost/redoc](http://localhost/redoc)
 
 ## 7. 운영 시 DB 마이그레이션
 

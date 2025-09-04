@@ -17,6 +17,8 @@ router = APIRouter(
     tags=["Flows Management"],
 )
 
+# Support both "/flows" and "/flows/" to avoid redirect issues
+@router.post("", response_model=schemas.FlowRead, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=schemas.FlowRead, status_code=status.HTTP_201_CREATED)
 def create_or_update_flow(
     flow: schemas.FlowCreate, 
@@ -25,13 +27,16 @@ def create_or_update_flow(
 ):
     """
     Create a new LangFlow or update an existing one.
-    - If a `front_tool_name` is provided and it already exists, the corresponding flow is updated.
-    - Otherwise, a new flow is created.
+    - If a `flow_id` exists, updates that flow.
+    - Else if an `endpoint` name exists, updates that flow.
+    - Otherwise, creates a new flow.
+    - If `context` or `contexts` is provided, updates mapping table to expose the flow only to those fronts.
     """
     return flow_service.upsert_flow(
         db=db, flow_create_schema=flow, router_service=router_service
     )
 
+@router.get("", response_model=List[schemas.FlowRead])
 @router.get("/", response_model=List[schemas.FlowRead])
 def read_all_flows(
     db: Session = Depends(get_db)

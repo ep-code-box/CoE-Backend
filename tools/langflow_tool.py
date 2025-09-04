@@ -2,7 +2,7 @@ import json
 import os
 from typing import Dict, Any, Optional, List
 from core.schemas import AgentState
-from core.database import SessionLocal
+from core.database import SessionLocal, LangflowToolMapping
 from services.db_langflow_service import LangFlowService
 
 # LangFlow 실행 도구 설명 (registry.py에서 수집되지 않도록 _description으로 끝나지 않게 명명)
@@ -47,7 +47,7 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
                 }]
             }
         
-        # 데이터베이스에서 플로우 찾기
+        # 데이터베이스에서 플로우 찾기 (context 허용 여부 확인)
         db = SessionLocal()
         try:
             db_flow = LangFlowService.get_flow_by_name(db, flow_name)
@@ -60,6 +60,21 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
                     }]
                 }
             
+            # 현재 컨텍스트에서 사용 가능한지 확인
+            current_ctx = state.get("context")
+            if current_ctx:
+                allowed = db.query(LangflowToolMapping).filter(
+                    LangflowToolMapping.flow_id == db_flow.flow_id,
+                    LangflowToolMapping.context == current_ctx
+                ).first()
+                if not allowed:
+                    return {
+                        "messages": [{
+                            "role": "assistant",
+                            "content": f"현재 컨텍스트('{current_ctx}')에서는 '{flow_name}' 플로우를 사용할 수 없습니다."
+                        }]
+                    }
+
             # 플로우 데이터 로드
             flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
             
@@ -112,10 +127,16 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
 async def list_langflows_run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> Dict[str, Any]:
     """저장된 LangFlow 목록을 조회하는 노드"""
     try:
-        # 데이터베이스에서 플로우 목록 조회
+        # 데이터베이스에서 플로우 목록 조회 (컨텍스트 필터)
         db = SessionLocal()
         try:
-            db_flows = LangFlowService.get_all_flows(db)
+            current_ctx = state.get("context")
+            all_flows = LangFlowService.get_all_flows(db)
+            if current_ctx:
+                allowed_ids = {m.flow_id for m in db.query(LangflowToolMapping).filter(LangflowToolMapping.context == current_ctx).all()}
+                db_flows = [f for f in all_flows if f.flow_id in allowed_ids]
+            else:
+                db_flows = all_flows
             
             if not db_flows:
                 return {

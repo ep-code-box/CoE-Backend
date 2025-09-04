@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 import logging
 
 from core import schemas
-from core.database import LangflowToolMapping, LangFlow
+from core.database import LangFlow, LangflowToolMapping
 from services.db_langflow_service import LangFlowService
 from services.flow_router_service import FlowRouterService
 
@@ -17,70 +17,71 @@ def upsert_flow(
     router_service: FlowRouterService
 ) -> schemas.FlowRead:
     """
-    Creates a new flow or updates an existing one based on front_tool_name.
-    Saves the flow to the DB, creates/updates a tool mapping, and adds/updates its API route.
+    Creates a new flow or updates an existing one based on flow_id or endpoint name.
+    Saves the flow to the DB and adds/updates its API route.
     """
     flow_body_dict = flow_create_schema.flow_body.model_dump() if hasattr(flow_create_schema.flow_body, 'model_dump') else flow_create_schema.flow_body.dict()
+    contexts: list[str] = []
+    # contexts 필드(복수) 우선, 없으면 단수 context 사용
+    try:
+        if getattr(flow_create_schema, 'contexts', None):
+            contexts = list(dict.fromkeys([c.strip() for c in flow_create_schema.contexts if c and c.strip()]))
+        elif getattr(flow_create_schema, 'context', None):
+            c = flow_create_schema.context.strip() if flow_create_schema.context else None
+            contexts = [c] if c else []
+    except Exception:
+        contexts = []
 
-    # Check for existing mapping by front_tool_name
-    existing_mapping = None
-    if flow_create_schema.front_tool_name:
-        existing_mapping = db.query(LangflowToolMapping).filter(LangflowToolMapping.front_tool_name == flow_create_schema.front_tool_name).first()
-
-    if existing_mapping:
-        # --- UPDATE ---
-        logger.info(f"Updating existing flow for context '{flow_create_schema.front_tool_name}'")
-        db_flow = db.query(LangFlow).filter(LangFlow.flow_id == existing_mapping.flow_id).first()
-        if not db_flow:
-            # This case should ideally not happen if DB is consistent
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Flow with ID {existing_mapping.flow_id} linked to tool '{flow_create_schema.front_tool_name}' not found."
-            )
-        
-        # Update flow details
+    # Determine upsert strategy: by flow_id first, then by endpoint name
+    # 1) If a flow with the given flow_id exists, update it
+    db_flow = db.query(LangFlow).filter(LangFlow.flow_id == flow_create_schema.flow_id).first()
+    if db_flow:
+        logger.info(f"Updating existing flow by flow_id '{flow_create_schema.flow_id}'")
         db_flow.name = flow_create_schema.endpoint
         db_flow.description = flow_create_schema.description
         db_flow.flow_data = flow_body_dict
-        
-        # Update mapping description
-        existing_mapping.description = flow_create_schema.description
-        
         db.commit()
         db.refresh(db_flow)
-        
     else:
-        # --- CREATE ---
-        logger.info(f"Creating new flow for endpoint '{flow_create_schema.endpoint}'")
-        # Check for duplicate endpoint name on create
-        db_flow_by_name = langflow_db_service.get_flow_by_name(db, name=flow_create_schema.endpoint)
-        if db_flow_by_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Endpoint '{flow_create_schema.endpoint}' already registered. Use a different endpoint name for new flows."
+        # 2) Else if a flow with the same endpoint (name) exists, update it
+        existing_by_name = langflow_db_service.get_flow_by_name(db, name=flow_create_schema.endpoint)
+        if existing_by_name:
+            logger.info(f"Updating existing flow by endpoint '{flow_create_schema.endpoint}'")
+            updated = langflow_db_service.update_flow(
+                db=db,
+                name=flow_create_schema.endpoint,
+                flow_data=flow_body_dict,
+                description=flow_create_schema.description,
             )
-
-        db_flow = langflow_db_service.create_flow(
-            db=db, 
-            name=flow_create_schema.endpoint,
-            description=flow_create_schema.description,
-            flow_data=flow_body_dict,
-            flow_id=flow_create_schema.flow_id
-        )
-        
-        if not db_flow:
-            # create_flow should raise an error, but as a safeguard:
-            raise HTTPException(status_code=500, detail="Failed to create flow in database.")
-
-        # Create tool mapping if front_tool_name is provided
-        if flow_create_schema.front_tool_name:
-            tool_mapping = LangflowToolMapping(
-                flow_id=db_flow.flow_id,
-                front_tool_name=flow_create_schema.front_tool_name,
-                description=flow_create_schema.description
+            if not updated:
+                raise HTTPException(status_code=404, detail=f"Flow '{flow_create_schema.endpoint}' not found for update.")
+            db_flow = updated
+        else:
+            # 3) Otherwise, create a new flow
+            logger.info(f"Creating new flow for endpoint '{flow_create_schema.endpoint}'")
+            db_flow = langflow_db_service.create_flow(
+                db=db, 
+                name=flow_create_schema.endpoint,
+                description=flow_create_schema.description,
+                flow_data=flow_body_dict,
+                flow_id=flow_create_schema.flow_id
             )
-            db.add(tool_mapping)
-            db.commit()
+            if not db_flow:
+                raise HTTPException(status_code=500, detail="Failed to create flow in database.")
+
+    # Upsert context mappings if provided
+    if contexts:
+        existing = db.query(LangflowToolMapping).filter(LangflowToolMapping.flow_id == db_flow.flow_id).all()
+        existing_contexts = {m.context for m in existing}
+        desired_contexts = set(contexts)
+
+        # add new contexts
+        for ctx in (desired_contexts - existing_contexts):
+            db.add(LangflowToolMapping(flow_id=db_flow.flow_id, context=ctx, description=db_flow.description))
+        # remove contexts no longer desired
+        for ctx in (existing_contexts - desired_contexts):
+            db.query(LangflowToolMapping).filter(LangflowToolMapping.flow_id == db_flow.flow_id, LangflowToolMapping.context == ctx).delete()
+        db.commit()
 
     # Convert DB model to API schema
     flow_read_schema = schemas.FlowRead.from_orm(db_flow)
@@ -105,9 +106,7 @@ def delete_and_unregister_flow(
     if not db_flow:
         return None
 
-    # 2. Remove the corresponding tool mapping
-    db.query(LangflowToolMapping).filter(LangflowToolMapping.flow_id == db_flow.flow_id).delete()
-    db.commit()
+    # 2. (Deprecated) No separate tool mapping to remove
         
     # 3. Convert to schema for response
     flow_read_schema = schemas.FlowRead.from_orm(db_flow)

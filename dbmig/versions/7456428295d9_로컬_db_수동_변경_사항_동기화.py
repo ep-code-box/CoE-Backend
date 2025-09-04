@@ -41,91 +41,18 @@ def upgrade() -> None:
         except Exception:
             return []
 
-    # rag_analysis_results
-    try:
-        if 'analysis_id' in indexes('rag_analysis_results'):
-            conn.exec_driver_sql("DROP INDEX IF EXISTS analysis_id ON rag_analysis_results")
-    except Exception:
-        pass
-    try:
-        if 'idx_analysis_id' in indexes('rag_analysis_results'):
-            conn.exec_driver_sql("DROP INDEX IF EXISTS idx_analysis_id ON rag_analysis_results")
-    except Exception:
-        pass
-    try:
-        if 'idx_git_url' in indexes('rag_analysis_results'):
-            conn.exec_driver_sql("DROP INDEX IF EXISTS idx_git_url ON rag_analysis_results")
-    except Exception:
-        pass
-    if has_table('rag_analysis_results'):
-        try:
-            op.drop_table('rag_analysis_results')
-        except Exception:
-            pass
+    # rag_analysis_results (no destructive action)
+    # keep existing tables/indexes as-is to avoid conflicts with RAG pipeline
 
-    # schema_migrations
-    try:
-        if 'idx_version' in indexes('schema_migrations'):
-            conn.exec_driver_sql("DROP INDEX IF EXISTS idx_version ON schema_migrations")
-    except Exception:
-        pass
-    try:
-        if 'version' in indexes('schema_migrations'):
-            conn.exec_driver_sql("DROP INDEX IF EXISTS version ON schema_migrations")
-    except Exception:
-        pass
-    if has_table('schema_migrations'):
-        try:
-            op.drop_table('schema_migrations')
-        except Exception:
-            pass
+    # schema_migrations (leave as-is)
 
-    # repository_analyses
-    for idx in ['idx_commit_hash', 'idx_repo_analysis_id', 'idx_repository_url']:
-        try:
-            if idx in indexes('repository_analyses'):
-                conn.exec_driver_sql(f"DROP INDEX IF EXISTS {idx} ON repository_analyses")
-        except Exception:
-            pass
-    if has_table('repository_analyses'):
-        try:
-            op.drop_table('repository_analyses')
-        except Exception:
-            pass
+    # repository_analyses (no destructive action)
 
-    # analysis_requests
-    try:
-        if 'analysis_id' in indexes('analysis_requests'):
-            conn.exec_driver_sql("DROP INDEX IF EXISTS analysis_id ON analysis_requests")
-    except Exception:
-        pass
-    if has_table('analysis_requests'):
-        try:
-            op.drop_table('analysis_requests')
-        except Exception:
-            pass
+    # analysis_requests (no destructive action)
 
-    # chat_messages 컬럼 드롭
-    if 'chat_messages' in inspector.get_table_names():
-        if 'tool_call_id' in columns('chat_messages'):
-            try:
-                op.drop_column('chat_messages', 'tool_call_id')
-            except Exception:
-                pass
-        if 'tool_name' in columns('chat_messages'):
-            try:
-                op.drop_column('chat_messages', 'tool_name')
-            except Exception:
-                pass
+    # chat_messages: keep columns as-is
 
-    # conversation_summaries 컬럼 추가/변경/인덱스
-    if has_table('conversation_summaries'):
-        conv_cols = columns('conversation_summaries')
-        if 'id' not in conv_cols:
-            try:
-                op.add_column('conversation_summaries', sa.Column('id', sa.Integer(), nullable=False))
-            except Exception:
-                pass
+    # conversation_summaries: no changes here
         if 'session_id' not in conv_cols:
             try:
                 op.add_column('conversation_summaries', sa.Column('session_id', sa.String(length=100), nullable=False))
@@ -165,29 +92,31 @@ def upgrade() -> None:
                 except Exception:
                     pass
 
-    # langflow_tool_mappings
+    # langflow_tool_mappings: prefer 'context' mapping (non-unique), remove 'front_tool_name' if present
     if has_table('langflow_tool_mappings'):
         ltm_cols = columns('langflow_tool_mappings')
-        if 'front_tool_name' not in ltm_cols:
+        # ensure context column exists
+        if 'context' not in ltm_cols:
             try:
-                op.add_column('langflow_tool_mappings', sa.Column('front_tool_name', sa.String(length=255), nullable=False))
+                op.add_column('langflow_tool_mappings', sa.Column('context', sa.String(length=255), nullable=False, server_default='default'))
+                op.alter_column('langflow_tool_mappings', 'context', server_default=None)
             except Exception:
                 pass
-        # drop old index if exists
+        # ensure context index exists (non-unique)
         try:
-            if 'ix_langflow_tool_mappings_tool_contexts' in indexes('langflow_tool_mappings'):
-                conn.exec_driver_sql("DROP INDEX IF EXISTS ix_langflow_tool_mappings_tool_contexts ON langflow_tool_mappings")
+            if 'ix_langflow_tool_mappings_tool_contexts' not in indexes('langflow_tool_mappings'):
+                op.create_index('ix_langflow_tool_mappings_tool_contexts', 'langflow_tool_mappings', ['context'], unique=False)
         except Exception:
             pass
-        # create new index if missing
+        # drop front_tool_name and its index if present
         try:
-            if op.f('ix_langflow_tool_mappings_front_tool_name') not in indexes('langflow_tool_mappings'):
-                op.create_index(op.f('ix_langflow_tool_mappings_front_tool_name'), 'langflow_tool_mappings', ['front_tool_name'], unique=True)
+            if 'ix_langflow_tool_mappings_front_tool_name' in indexes('langflow_tool_mappings'):
+                op.drop_index('ix_langflow_tool_mappings_front_tool_name', table_name='langflow_tool_mappings')
         except Exception:
             pass
-        if 'context' in ltm_cols:
+        if 'front_tool_name' in ltm_cols:
             try:
-                op.drop_column('langflow_tool_mappings', 'context')
+                op.drop_column('langflow_tool_mappings', 'front_tool_name')
             except Exception:
                 pass
     # ### end Alembic commands ###

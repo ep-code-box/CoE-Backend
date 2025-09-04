@@ -116,21 +116,22 @@ class LangFlow(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)
 
-    # 관계 설정
-    tool_mapping = relationship("LangflowToolMapping", back_populates="flow", uselist=False)
+    # 관계 설정 (여러 컨텍스트 매핑 가능)
+    tool_mappings = relationship("LangflowToolMapping", back_populates="flow", uselist=True)
 
 class LangflowToolMapping(Base):
     __tablename__ = "langflow_tool_mappings"
     extend_existing=True
     id = Column(Integer, primary_key=True, index=True)
     flow_id = Column(String(255), ForeignKey('langflows.flow_id'), nullable=False)
-    front_tool_name = Column(String(255), unique=True, nullable=False, index=True)
+    # 어떤 프론트(context)에서 사용 가능한지 표시 (ex: 'aider', 'openWebUi')
+    context = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # 관계 설정
-    flow = relationship("LangFlow", back_populates="tool_mapping")
+    flow = relationship("LangFlow", back_populates="tool_mappings")
 
 
 # 데이터베이스 모델 정의
@@ -237,8 +238,9 @@ def _is_database_initialized():
     """데이터베이스가 이미 초기화되었는지 확인합니다."""
     try:
         inspector = inspect(engine)
-        # 주요 테이블이 있는지 확인 (users 테이블은 없으므로 제거)
-        required_tables = {'analysis_requests', 'chat_messages', 'conversation_summaries'}
+        # 주요 테이블이 있는지 확인
+        # Backend에서 필수로 사용하는 테이블 기준으로 축소
+        required_tables = {'chat_messages', 'conversation_summaries'}
         existing_tables = set(inspector.get_table_names())
         print(f"🔍 현재 데이터베이스에 존재하는 테이블: {existing_tables}")
         print(f"🔍 필요한 테이블: {required_tables}")
@@ -269,13 +271,14 @@ def init_database():
             print("❌ 데이터베이스 연결 테스트 실패")
             return False
         
-        # Alembic이 마이그레이션을 처리하므로, 여기서는 테이블을 직접 생성하지 않습니다.
-        # create_tables()
-        
+        # 필요한 최소 테이블이 없으면 직접 생성 시도 (로컬/개발 환경 호환성)
+        if not _is_database_initialized():
+            create_tables()
+
         # 초기화 완료 후 다시 확인 (테이블 생성 후 잠시 대기)
         import time
         time.sleep(1)
-        
+
         if not _is_database_initialized():
             print("❌ 초기화 후에도 데이터베이스 테이블이 확인되지 않았습니다.")
             return False

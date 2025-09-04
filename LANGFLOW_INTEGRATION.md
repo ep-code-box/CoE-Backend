@@ -1,46 +1,218 @@
-# LangFlow 의미 기반 실행 가이드 (v2)
+# LangFlow 연동 가이드 (현재 구현)
 
-## 1. 개요 (Overview)
+## 1. 개요
 
-이 문서는 CoE-Backend 프로젝트에 구현된 LangFlow 연동 기능의 새로운 아키텍처를 설명합니다.
+이 문서는 CoE-Backend 내 LangFlow 연동의 실제 구현을 설명합니다. 현재 구조는 다음 두 경로를 모두 제공합니다.
 
-기존의 각 Flow를 개별 API 엔드포인트로 노출하는 방식에서, **중앙 AI 에이전트가 사용자의 의도를 분석하여 가장 적합한 Flow를 동적으로 찾아 실행**하는 방식으로 변경되었습니다. 이는 고정된 규칙이 아닌, 대화의 맥락과 의미를 기반으로 최적의 워크플로우를 선택하는 더 유연하고 지능적인 시스템을 지향합니다.
+- 서버 API 경로: 등록된 Flow를 DB에 저장하고, FastAPI 라우트를 동적으로 노출하여 HTTP로 실행합니다.
+- 에이전트 도구 경로: LLM 에이전트가 도구 형태로 LangFlow를 조회/실행합니다.
 
-## 2. 핵심 개념: 2단계 LLM 라우팅
+기존 문서에 언급된 “2단계 LLM 라우팅” 방식은 구현되어 있지 않습니다. 현재는 LLM이 일반 도구들과 함께 LangFlow 관련 도구(목록/실행)를 선택하여 사용하는 방식입니다.
 
-LangFlow 실행은 2단계에 걸친 LLM의 판단을 통해 이루어집니다.
+## 2. 동작 방식
 
-1.  **1단계 (도구 유형 결정)**: 사용자의 요청을 받은 `tool_dispatcher`는 먼저 LLM에게 "이 요청을 처리하기 위해 간단한 Python 도구를 쓸까, 아니면 복잡한 LangFlow 워크플로우를 쓸까?"라고 질문합니다. 이때 LLM은 등록된 모든 Python 도구와 `run_best_langflow_workflow`라는 단 하나의 LangFlow 실행 도구 중에서 하나를 선택합니다.
+- 서버 측 동적 엔드포인트 노출
+  - Flow는 DB(`langflows`)에 저장됩니다.
+  - 앱 시작 시와 주기적으로 스케줄러가 DB와 라우트를 동기화합니다.
+  - 각 Flow는 `POST /flows/run/{endpoint}`로 실행 가능한 엔드포인트가 동적으로 추가됩니다.
 
-2.  **2단계 (최적 Flow 결정)**: 만약 LLM이 `run_best_langflow_workflow`를 선택하면, `tool_dispatcher`는 다시 한번 LLM에게 질문합니다. 현재 `context`에 해당하는 모든 LangFlow의 `description`(설명) 목록을 보여주며, "사용자의 원래 질문에 가장 적합한 Flow는 이 목록 중 어느 것인가?"라고 물어 최적의 Flow 하나를 최종적으로 선택합니다.
+- 에이전트 측 도구 연동
+  - 에이전트 노드(`core/agent_nodes.py: tool_dispatcher_node`)는 컨텍스트별 서버/클라이언트 도구 스키마를 병합해 LLM에 제공합니다.
+  - LangFlow 전용 도구(`tools/langflow_tool.py`): `list_langflows`, `execute_langflow`
+    - `list_langflows`: 현재 컨텍스트에서 사용 가능한 Flow 목록을 반환합니다.
+    - `execute_langflow(flow_name)`: 지정한 이름의 Flow를 내부 LangFlow 라이브러리로 실행합니다.
+  - 컨텍스트 제한은 매핑 테이블(`langflow_tool_mappings`)을 통해 검증됩니다.
 
-이러한 2단계 구조를 통해, 시스템은 먼저 작업의 종류를 판단하고, 그 다음 해당 종류에 맞는 최적의 세부 워크플로우를 찾아내는 정교한 의사결정을 수행합니다.
+## 3. Flow 등록 API
 
-## 3. LangFlow 등록 방법
-
-새로운 아키텍처에서 LangFlow를 효과적으로 사용하려면, 등록 시 **`description`과 `context`를 명확하게 작성하는 것이 매우 중요합니다.**
-
--   **`description` (설명)**: 2단계 라우팅에서 LLM이 최적의 Flow를 판단하는 **유일한 근거**입니다. 이 Flow가 어떤 역할을 하는지, 어떤 입력에 적합한지, 어떤 결과를 내어주는지를 상세하고 명확하게 작성해야 AI가 올바른 선택을 할 수 있습니다.
--   **`context` (실행 환경)**: 이 Flow가 어떤 프론트엔드 환경(예: `aider`, `openWebUi`)에서 사용될 수 있는지를 지정합니다.
-
-#### `POST /v1/flows`
-- **설명**: 새로운 Flow를 등록합니다.
-- **Request Body Example**:
+- 엔드포인트: `POST /flows/`
+- 설명: Flow를 생성하거나(없으면) 업데이트합니다(있으면).
+- 본문 스키마: `core/schemas.py::FlowCreate`
+- Request Body 예시:
   ```json
   {
     "endpoint": "generate-python-code-from-spec",
-    "description": "사용자의 기능 요구사항 명세서(영어 또는 한글)를 입력받아, 그에 맞는 Python 클래스 또는 함수 코드를 자동으로 생성하는 전체 워크플로우입니다. 코드 생성 후에는 문법 검사까지 완료합니다.",
+    "description": "요구사항 명세서를 입력으로 받아 Python 클래스를 생성하고 기본 문법 검사를 포함합니다.",
     "flow_id": "flow-generate-py-456",
     "flow_body": { /* LangFlow JSON Object */ },
-    "context": "aider"
+    "contexts": ["aider", "openWebUi"]
+  }
+  ```
+- 비고
+  - `contexts`(복수) 또는 `context`(단수)로 노출 대상 프론트 컨텍스트를 지정하면 `langflow_tool_mappings`에 반영됩니다.
+  - 성공 시 DB에 저장하고, 해당 Flow의 실행 라우트가 `POST /flows/run/{endpoint}`로 등록됩니다.
+
+보조 엔드포인트
+- `GET /flows/` : 활성 Flow 목록 조회
+- `DELETE /flows/{flow_id}` : Flow 비활성화(소프트 삭제) 및 라우트 비활성화
+
+## 4. Flow 실행 API
+
+- 엔드포인트: `POST /flows/run/{endpoint}`
+- 요청 본문: Flow가 기대하는 입력 구조를 전달합니다. 기본 구현은 `user_input`으로 전달된 딕셔너리를 그대로 Flow 실행로직에 넘깁니다. 예시:
+  ```json
+  {
+    "text": "문서 요약을 수행해줘"
+  }
+  ```
+- 응답 예시:
+  ```json
+  {
+    "success": true,
+    "result": { /* Flow의 최종 출력 */ }
   }
   ```
 
-## 4. 아키텍처 및 주요 모듈
+주의
+- 서버 동적 라우트는 샘플 실행기(`services/flow_router_service.py`)를 통해 동작합니다. 에이전트 도구 경로는 내부 LangFlow 라이브러리(`services/langflow/langflow_service.py`)로 직접 실행합니다.
 
-- **`services/tool_dispatcher.py`**: **프로젝트의 두뇌**. 위에서 설명한 2단계 LLM 라우팅을 포함한 모든 의사결정과 실행을 총괄합니다.
-- **`api/flows_api.py`**: LangFlow를 등록(`POST /v1/flows`)하고 관리하는 API 엔드포인트를 제공합니다.
-- **`core/database.py`**: 등록된 LangFlow의 정보(`name`, `description`, `context` 등)가 `langflows` 테이블에 저장됩니다.
-- **`services/db_service.py`**: `LangFlowService`가 데이터베이스 CRUD 로직을 담당합니다.
+## 5. 에이전트에서의 사용
 
-(참고: 기존의 `LangflowToolMapping` 테이블과 `flow_router_service`, `scheduler_service` 등은 더 이상 LangFlow의 동적 실행에 직접적으로 관여하지 않거나 역할이 변경되었습니다.)
+- 도구 이름 및 설명(`tools/langflow_tool.py`)
+  - `list_langflows`: 매개변수 없음. 현재 컨텍스트에 허용된 Flow 목록을 안내합니다.
+  - `execute_langflow`: 매개변수 `flow_name`(필수). 해당 이름의 Flow를 실행합니다.
+- 자동 파싱 보조: 사용자가 “실행/execute”라는 표현을 포함해 요청한 경우, 최근 메시지에서 flow_name을 추정하는 간단한 파서를 포함합니다(정확도 향상을 위해 명시적 전달 권장).
+- 컨텍스트 검증: 실행 전 `langflow_tool_mappings`로 현재 컨텍스트 허용 여부를 검사합니다.
+- 내부 실행: LangFlow 그래프는 라이브러리 기반으로 처리되며(`process_graph_cached`), 외부 LangFlow 서버 없이 동작합니다.
+
+## 6. 데이터베이스 스키마(요지)
+
+- `langflows`
+  - `flow_id`, `name(endpoint)`, `description`, `flow_data(JSON)`, `is_active`, `created_at`, `updated_at`
+- `langflow_tool_mappings`
+  - `flow_id`, `context`, `description`, `created_at`, `updated_at`
+
+## 7. 주요 모듈 맵
+
+- `api/flows_api.py`: Flow 등록/조회/삭제 API (prefix: `/flows`)
+- `services/flow_service.py`: 등록/업데이트/삭제 + 동적 라우트 추가/제거 연계
+- `services/flow_router_service.py`: `POST /flows/run/{endpoint}` 동적 라우팅 추가/비활성화
+- `services/scheduler_service.py`: 시작 시 및 주기적 라우트-DB 동기화
+- `services/db_langflow_service.py`: Flow CRUD
+- `services/langflow/langflow_service.py`: LangFlow 라이브러리 기반 내부 실행
+- `tools/langflow_tool.py`: 에이전트용 `list_langflows`, `execute_langflow` 도구
+- `services/tool_dispatcher.py`: 컨텍스트별 도구 스키마/함수 로딩, Python 도구/일부 LangFlow 경로 디스패치 유틸
+
+참고
+- `services/tool_dispatcher.py`에는 외부 LangFlow 서비스로의 실행(fallback) 유틸이 포함되어 있으며(`LANGFLOW_BASE_URL` 사용), 기본 에이전트 경로에서는 내부 실행을 사용합니다.
+
+## 8. 등록 가이드라인
+
+- `endpoint`: 고유 식별자이자 실행 엔드포인트 경로의 일부가 됩니다(`/flows/run/{endpoint}`).
+- `description`: 목록/문서화에 사용됩니다. 사용 목적, 기대 입력/출력, 제약을 명확히 서술하세요.
+- `contexts`: 노출 대상 프론트를 최소한으로 명시하세요(예: `aider`, `continue.dev`, `openWebUi`, `rag`, `sql`).
+- `flow_body`: LangFlow UI에서 Export한 유효한 JSON을 그대로 사용하세요.
+
+## 9. 변경 사항 요약
+
+- 제거: “2단계 LLM 라우팅”에 의한 자동 Flow 선택은 현재 구현에 포함되지 않습니다.
+- 추가: 에이전트 도구(`list_langflows`, `execute_langflow`)를 통해 명시적으로 Flow를 조회/실행합니다.
+- 정정: Flow 등록 엔드포인트는 `POST /flows/`이며, 실행 엔드포인트는 `POST /flows/run/{endpoint}`입니다.
+
+## 10. 빠른 실행 예시
+
+- Flow 등록
+  - 요청
+    ```bash
+    curl -X POST http://localhost:8000/flows/ \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "endpoint": "sample-summarizer",
+        "description": "간단 요약 플로우",
+        "flow_id": "lf-sample-001",
+        "flow_body": { /* LangFlow JSON */ },
+        "contexts": ["openWebUi", "aider"]
+      }'
+    ```
+  - 응답: 저장된 Flow 정보가 반환되며, `POST /flows/run/sample-summarizer` 경로가 동적으로 등록됩니다.
+
+- Flow 실행
+  - 요청
+    ```bash
+    curl -X POST http://localhost:8000/flows/run/sample-summarizer \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "text": "이 문단을 간단히 요약해줘"
+      }'
+    ```
+  - 응답(예)
+    ```json
+    { "success": true, "result": { /* 최종 출력 */ } }
+    ```
+
+- Flow 목록 조회
+  - 요청
+    ```bash
+    curl http://localhost:8000/flows/
+    ```
+
+- Flow 삭제(비활성화)
+  - 요청
+    ```bash
+    curl -X DELETE http://localhost:8000/flows/123   # 123: DB의 flow PK
+    ```
+
+에이전트 도구 사용(개념)
+- `list_langflows`: 컨텍스트에 허용된 Flow 목록을 어시스턴트 응답으로 제공합니다.
+- `execute_langflow`: `{"flow_name": "sample-summarizer"}` 형태로 호출되며, 내부 LangFlow 라이브러리로 실행합니다.
+
+## 11. OpenAPI 문서
+
+- 스웨거 UI: `http://localhost:8000/docs`
+- OpenAPI 스펙: `http://localhost:8000/openapi.json`
+- 비고
+  - Flow 등록 후, 동적 실행 경로는 “Runnable Flows” 태그로 문서에 표시됩니다.
+  - 서버 재시작 없이도 스케줄러가 주기적으로 라우트를 동기화합니다(`services/scheduler_service.py`).
+
+## 12. 샘플 `flow_body` 스켈레톤
+
+아래 예시는 `FlowCreate.flow_body`에 넣을 수 있는 최소 유효 구조 예시입니다. 실제 실행을 위해서는 LangFlow UI에서 Export한 JSON을 사용하는 것을 권장합니다.
+
+```json
+{
+  "description": "간단한 입력을 받아 LLM 노드로 전달하는 예시",
+  "name": "sample-summarizer",
+  "id": "lf-sample-001",
+  "is_component": false,
+  "data": {
+    "nodes": [
+      {
+        "id": "input-node",
+        "type": "Input",
+        "position": { "x": 100, "y": 120 },
+        "data": {
+          "label": "User Input",
+          "params": {
+            "key": "text"
+          }
+        }
+      },
+      {
+        "id": "llm-node",
+        "type": "LLM",
+        "position": { "x": 420, "y": 120 },
+        "data": {
+          "label": "Chat Model",
+          "params": {
+            "model": "gpt-4o-mini",
+            "system": "You are a concise assistant.",
+            "prompt": "Summarize: {{text}}"
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-input-to-llm",
+        "source": "input-node",
+        "target": "llm-node",
+        "sourceHandle": "output",
+        "targetHandle": "input"
+      }
+    ],
+    "viewport": { "x": 0, "y": 0, "zoom": 1 }
+  }
+}
+```
+
+주의: `type`, `data.params` 등의 키는 사용하는 LangFlow 버전과 노드 구성에 따라 달라질 수 있습니다. 실제로는 LangFlow UI에서 설계 → Export 한 JSON을 그대로 사용하세요.

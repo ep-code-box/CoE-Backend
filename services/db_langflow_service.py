@@ -32,7 +32,8 @@ class LangFlowService:
                     name=name,
                     description=description,
                     flow_data=flow_data,
-                    flow_id=flow_id
+                    flow_id=flow_id,
+                    is_active=True,
                 )
                 db.add(db_flow)
                 db.commit()
@@ -63,8 +64,14 @@ class LangFlowService:
     
     @staticmethod
     def get_all_flows(db: Session) -> List[LangFlow]:
-        """모든 활성 LangFlow를 조회합니다."""
-        return db.query(LangFlow).filter(LangFlow.is_active == True).order_by(LangFlow.created_at.desc()).all()
+        """모든 활성 LangFlow를 조회합니다. (is_active가 NULL인 레거시 데이터도 포함)"""
+        from sqlalchemy import or_, true
+        return (
+            db.query(LangFlow)
+            .filter(or_(LangFlow.is_active == True, LangFlow.is_active.is_(None)))
+            .order_by(LangFlow.created_at.desc())
+            .all()
+        )
     
     @staticmethod
     def update_flow(db: Session, name: str, flow_data: Optional[Dict[str, Any]] = None, 

@@ -182,7 +182,9 @@ class FlowCreate(BaseModel):
     description: Optional[str] = Field(None, description="A description for the flow.")
     flow_body: LangFlowJSON = Field(..., description="The JSON object defining the LangFlow.")
     flow_id: str = Field(..., description="The unique ID for the flow, typically from LangFlow itself.")
-    front_tool_name: Optional[str] = Field(None, description="The name to be used for the tool in the front-end.")
+    # LangFlow를 사용할 수 있는 프론트 컨텍스트 지정 (예: 'aider', 'continue.dev', 'openWebUi')
+    context: Optional[str] = Field(None, description="Single context tag to expose this flow.")
+    contexts: Optional[List[str]] = Field(None, description="Context tags to expose this flow.")
 
 class FlowRead(BaseModel):
     id: int
