@@ -66,6 +66,39 @@ elif [ -f "$INSTALLED_MARKER" ]; then
     echo "✅ 의존성 이미 설치됨 (requirements.in 변경 없음)"
 fi
 
+# 데이터베이스 연결 대기 함수
+wait_for_db() {
+    echo "⏳ 데이터베이스 연결 대기 중..."
+    # .env 파일에서 DB_HOST, DB_PORT를 읽어옴
+    DB_HOST=$(grep ^DB_HOST "$ENV_FILE" | cut -d '=' -f2)
+    DB_PORT=$(grep ^DB_PORT "$ENV_FILE" | cut -d '=' -f2)
+    
+    # 기본값 설정 (grep 실패 시)
+    DB_HOST=${DB_HOST:-mariadb}
+    DB_PORT=${DB_PORT:-3306}
+
+    # nc (netcat)을 사용하여 포트가 열릴 때까지 대기
+    # Docker 환경에서는 host.docker.internal 대신 서비스 이름을 사용해야 할 수 있습니다.
+    # 여기서는 docker-compose.yml에 정의된 mariadb 서비스 이름을 사용합니다.
+    until nc -z "$DB_HOST" "$DB_PORT"; do
+        echo "데이터베이스 ($DB_HOST:$DB_PORT)에 연결할 수 없습니다. 5초 후 재시도..."
+        sleep 5
+    done
+    echo "✅ 데이터베이스 연결 성공!"
+}
+
+# 데이터베이스 연결 대기
+wait_for_db
+
+# Alembic 마이그레이션 적용 (환경변수로 비활성화 가능)
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+    echo "⬆️ Alembic 마이그레이션 적용 중..."
+    alembic upgrade head
+    echo "✅ Alembic 마이그레이션 완료!"
+else
+    echo "⏭️  Alembic 마이그레이션 건너뜀 (RUN_MIGRATIONS=false)"
+fi
+
 # .env 파일 로드 및 서버 실행
 echo "🌍 환경변수 로드: .env"
 echo "🎯 서버 실행 중... (http://localhost:8000)"

@@ -15,13 +15,13 @@ class LangFlowService:
             # flow_id로 기존 LangFlow 조회
             existing_flow = db.query(LangFlow).filter(LangFlow.flow_id == flow_id).first()
 
-            flow_data_str = json.dumps(flow_data, ensure_ascii=False, indent=2)
+            # flow_data_str = json.dumps(flow_data, ensure_ascii=False, indent=2) # SQLAlchemy JSON type handles serialization
 
             if existing_flow:
                 # 기존 LangFlow 업데이트
                 existing_flow.name = name
                 existing_flow.description = description
-                existing_flow.flow_data = flow_data_str
+                existing_flow.flow_data = flow_data
                 existing_flow.updated_at = datetime.utcnow()
                 db.commit()
                 db.refresh(existing_flow)
@@ -31,7 +31,7 @@ class LangFlowService:
                 db_flow = LangFlow(
                     name=name,
                     description=description,
-                    flow_data=flow_data_str,
+                    flow_data=flow_data,
                     flow_id=flow_id
                 )
                 db.add(db_flow)
@@ -76,7 +76,7 @@ class LangFlowService:
                 return None
             
             if flow_data is not None:
-                db_flow.flow_data = json.dumps(flow_data, ensure_ascii=False, indent=2)
+                db_flow.flow_data = flow_data
             
             if description is not None:
                 db_flow.description = description
@@ -128,10 +128,8 @@ class LangFlowService:
     @staticmethod
     def get_flow_data_as_dict(flow: LangFlow) -> Dict[str, Any]:
         """LangFlow의 flow_data를 딕셔너리로 반환합니다."""
-        try:
-            return json.loads(flow.flow_data)
-        except json.JSONDecodeError:
-            return {}
+        # flow.flow_data는 이미 SQLAlchemy에 의해 딕셔너리로 로드됩니다.
+        return flow.flow_data
 
 # 편의 함수들
 def get_langflow_service() -> LangFlowService:

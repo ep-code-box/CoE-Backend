@@ -83,3 +83,11 @@ CoE-Backend/
 
 - **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+## 7. 운영 시 DB 마이그레이션
+
+- 기본값: 스킵. 컨테이너/로컬 실행 시 Alembic이 자동 실행되지 않도록 구성되어 있습니다.
+- 배포 시 1회 적용:
+  - Compose 환경변수: `RUN_MIGRATIONS=true docker compose up -d coe-backend`
+  - 로컬 스크립트: `RUN_MIGRATIONS=true ./run.sh`
+- 상세 가이드: 최상위 `docs/OPERATIONS.md`

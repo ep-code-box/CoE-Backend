@@ -111,7 +111,7 @@ class LangFlow(Base):
     flow_id = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(255), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
-    flow_data = Column(Text, nullable=False)  # JSON 데이터를 문자열로 저장
+    flow_data = Column(JSON, nullable=False)  # JSON 데이터를 문자열로 저장
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)
@@ -269,8 +269,8 @@ def init_database():
             print("❌ 데이터베이스 연결 테스트 실패")
             return False
         
-        # 테이블 생성
-        create_tables()
+        # Alembic이 마이그레이션을 처리하므로, 여기서는 테이블을 직접 생성하지 않습니다.
+        # create_tables()
         
         # 초기화 완료 후 다시 확인 (테이블 생성 후 잠시 대기)
         import time
