@@ -1,5 +1,11 @@
 # CoE Backend - AI Agent Server
 
+문서 맵
+- 배포/기동: `../docs/DEPLOY.md`
+- 마이그레이션 운영: `../docs/OPERATIONS.md`
+- Swagger/UI 경로/사용: `../docs/SWAGGER_GUIDE.md`
+- cURL 예시 모음: `../docs/curl-checks.md`
+
 ## 1. 프로젝트 개요
 
 이 프로젝트는 **중앙 AI 에이전트 백엔드 서버**입니다. FastAPI를 기반으로 구축되었으며, 시스템의 두뇌 역할을 수행합니다.
@@ -15,55 +21,15 @@
 
 ## 3. 시작하기
 
-### 사전 요구사항
-
-- Docker
-- Docker Compose
-
-### 실행 방법
-
-이 서비스는 단독으로 실행되지 않으며, 프로젝트 최상위 디렉토리의 `docker-compose.yml`을 통해 전체 시스템의 일부로 실행되어야 합니다.
-
-1.  **프로젝트 클론**:
-    ```bash
-    git clone <repository_url>
-    cd CoE
-    ```
-
-2.  **환경 변수 설정**:
-    `CoE-Backend/.env` 파일에 필요한 API 키 등의 환경 변수를 설정합니다.
-
-3.  **Docker Compose 실행**:
-    프로젝트 최상위 디렉토리에서 아래 명령어를 실행합니다.
-    ```bash
-    docker compose up --build -d
-    ```
-
-4.  **로그 확인**:
-    ```bash
-    docker compose logs -f coe-backend
-    ```
+운영/배포/기동 절차는 최상위 문서에서 관리합니다. 아래 문서를 참고하세요.
+- 전체 배포: `../docs/DEPLOY.md`
+- 로컬/개발/완전 격리 스택: `../docs/DEPLOY.md#완전-격리-배포edge--prod-full--dev-full`
 
 ## 4. API 사용 예시
 
-### 에이전트와 대화하기 (`/v1/chat/completions`)
-
-`curl`을 사용하여 에이전트에게 직접 작업을 요청할 수 있습니다. `context` 필드를 통해 현재 사용 중인 클라이언트 환경을 알려주면, 에이전트가 해당 환경에 맞는 도구들을 활성화합니다.
-
-```bash
-curl -X POST "http://localhost/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d {
-    "model": "ax4",
-    "messages": [
-      {
-        "role": "user",
-        "content": "1995년 3월 15일생은 만 나이로 몇 살이야?"
-      }
-    ],
-    "context": "aider"
-  }
-```
+Swagger 경로와 주요 예시는 다음 문서에서 확인하세요.
+- Swagger/UI: `../docs/SWAGGER_GUIDE.md`
+- cURL 예시 모음: `../docs/curl-checks.md`
 
 ## 5. 프로젝트 구조
 
@@ -86,8 +52,4 @@ CoE-Backend/
 
 ## 7. 운영 시 DB 마이그레이션
 
-- 기본값: 스킵. 컨테이너/로컬 실행 시 Alembic이 자동 실행되지 않도록 구성되어 있습니다.
-- 배포 시 1회 적용:
-  - Compose 환경변수: `RUN_MIGRATIONS=true docker compose up -d coe-backend`
-  - 로컬 스크립트: `RUN_MIGRATIONS=true ./run.sh`
-- 상세 가이드: 최상위 `docs/OPERATIONS.md`
+정책과 실행 방법은 `../docs/OPERATIONS.md`를 참고하세요.
