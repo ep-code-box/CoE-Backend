@@ -58,6 +58,15 @@ class AppFactory:
         # 에이전트 생성
         self.build_agents()
         
+        # 환경에 따른 문서 노출 설정
+        app_env = os.getenv("APP_ENV", "").lower()
+        is_dev = app_env == "development"
+
+        docs_url = "/docs" if is_dev else None
+        redoc_url = "/redoc" if is_dev else None
+        # 필요 시 openapi_url도 비공개 가능. 기본은 유지.
+        openapi_url = "/openapi.json" if is_dev else None
+
         # FastAPI 앱 생성
         app = FastAPI(
             title="🤖 CoE Backend API",
@@ -82,9 +91,9 @@ class AppFactory:
             - **CoE-RagPipeline**: `http://localhost:8001` (Git 소스코드 및 RDB 스키마 분석 서비스)
             """,
             version="1.0.0",
-            docs_url="/docs",
-            redoc_url="/redoc",
-            openapi_url="/openapi.json",
+            docs_url=docs_url,
+            redoc_url=redoc_url,
+            openapi_url=openapi_url,
             lifespan=lifespan,
             swagger_ui_parameters={
                 "defaultModelsExpandDepth": 2,
@@ -123,26 +132,54 @@ class AppFactory:
         @app.middleware("http")
         async def log_requests(request: Request, call_next):
             start_time = time.time()
-            
-            # 요청 정보 로깅
-            logging.info(f"🌐 {request.method} {request.url.path} - Client: {request.client.host if request.client else 'unknown'}")
-            
-            # 요청 본문 로깅 (POST 요청의 경우)
+
+            # 요청 본문 로깅 (POST 요청의 경우) – 응답 상태 기반 필터링과 무관
             if request.method == "POST":
                 try:
                     body = await request.body()
                     if body:
-                        logging.info(f"📝 Request body: {body.decode('utf-8')[:500]}...")
+                        logging.info(
+                            f"📝 {request.method} {request.url.path} body: {body.decode('utf-8')[:500]}..."
+                        )
                 except Exception as e:
                     logging.warning(f"⚠️ Could not read request body: {e}")
-            
+
             # 응답 처리
             response = await call_next(request)
-            
-            # 응답 시간 계산
+
+            # 404 스캐너 노이즈 필터 (GET 404 중 일부 경로 무시)
+            try:
+                path = request.url.path or "/"
+                is_get_404 = (request.method == "GET" and getattr(response, "status_code", 0) == 404)
+                skip_prefixes = [
+                    "/", "/favicon.ico", "/admin", "/login", "/cgi-bin", "/console", "/helpdesk",
+                    "/owncloud", "/zabbix", "/WebInterface", "/api/session/properties", "/ssi.cgi",
+                    "/jasperserver", "/partymgr", "/css/", "/js/", "/version"
+                ]
+                skip_suffixes = [".php", ".pl", ".ico", ".html", ".js", ".png"]
+                is_scanner_like = (
+                    path == "/" or
+                    any(path.startswith(p) for p in skip_prefixes) or
+                    any(path.endswith(s) for s in skip_suffixes)
+                )
+
+                if is_get_404 and is_scanner_like:
+                    # 스캐너성 404는 로그 생략
+                    return response
+            except Exception:
+                # 필터 판단 실패 시에는 일반 로깅으로 진행
+                pass
+
+            # 응답 시간 계산 및 일반 로깅
             process_time = time.time() - start_time
-            logging.info(f"✅ {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s")
-            
+            client_host = request.client.host if request.client else "unknown"
+            logging.info(
+                f"🌐 {request.method} {request.url.path} - Client: {client_host}"
+            )
+            logging.info(
+                f"✅ {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.3f}s"
+            )
+
             return response
     
     def _register_routers(self, app: FastAPI):
