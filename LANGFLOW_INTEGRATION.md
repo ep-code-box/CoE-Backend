@@ -39,7 +39,9 @@
   }
   ```
 - 비고
-  - `contexts`(복수) 또는 `context`(단수)로 노출 대상 프론트 컨텍스트를 지정하면 `langflow_tool_mappings`에 반영됩니다.
+  - 컨텍스트 지정: `contexts`(배열) 또는 `context` 필드 모두 지원합니다.
+    - `context`는 문자열 또는 문자열 배열 형식 모두 허용됩니다(호환성 목적).
+    - 서버는 제공된 값을 정규화하여 `langflow_tool_mappings`에 반영합니다.
   - 성공 시 DB에 저장하고, 해당 Flow의 실행 라우트가 `POST /flows/run/{endpoint}`로 등록됩니다.
 
 보조 엔드포인트

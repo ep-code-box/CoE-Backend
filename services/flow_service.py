@@ -25,10 +25,26 @@ def upsert_flow(
     # contexts 필드(복수) 우선, 없으면 단수 context 사용
     try:
         if getattr(flow_create_schema, 'contexts', None):
-            contexts = list(dict.fromkeys([c.strip() for c in flow_create_schema.contexts if c and c.strip()]))
+            contexts = list(
+                dict.fromkeys([
+                    (c.strip() if isinstance(c, str) else str(c).strip())
+                    for c in flow_create_schema.contexts
+                    if c and (str(c).strip())
+                ])
+            )
         elif getattr(flow_create_schema, 'context', None):
-            c = flow_create_schema.context.strip() if flow_create_schema.context else None
-            contexts = [c] if c else []
+            raw = flow_create_schema.context
+            if isinstance(raw, list):
+                contexts = list(
+                    dict.fromkeys([
+                        (c.strip() if isinstance(c, str) else str(c).strip())
+                        for c in raw
+                        if c and (str(c).strip())
+                    ])
+                )
+            else:
+                c = (raw.strip() if isinstance(raw, str) else str(raw).strip()) if raw else None
+                contexts = [c] if c else []
     except Exception:
         contexts = []
 
