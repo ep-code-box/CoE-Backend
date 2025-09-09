@@ -62,11 +62,12 @@ def run_migrations_online() -> None:
 
     """
     # Dynamically construct the database URL from environment variables
-    db_host = os.environ.get("DB_HOST", "mariadb")
-    db_port = os.environ.get("DB_PORT", "3306")
-    db_user = os.environ.get("MARIADB_USER", "coe_user")
-    db_password = os.environ.get("MARIADB_PASSWORD", "coe_password")
-    db_name = os.environ.get("MARIADB_DATABASE", "coe_db")
+    # Prefer DB_* if provided; fall back to MARIADB_* for backward compatibility
+    db_host = os.environ.get("DB_HOST") or os.environ.get("MARIADB_HOST", "mariadb")
+    db_port = os.environ.get("DB_PORT") or os.environ.get("MARIADB_PORT", "3306")
+    db_user = os.environ.get("DB_USER") or os.environ.get("MARIADB_USER", "coe_user")
+    db_password = os.environ.get("DB_PASSWORD") or os.environ.get("MARIADB_PASSWORD", "coe_password")
+    db_name = os.environ.get("DB_NAME") or os.environ.get("MARIADB_DATABASE", "coe_db")
 
     db_url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
