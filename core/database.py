@@ -241,7 +241,7 @@ def _is_database_initialized():
         # 주요 테이블이 있는지 확인
         # Backend에서 필수로 사용하는 테이블 기준으로 축소
         # Include langflows-related tables to ensure LangFlow features work
-        required_tables = {'chat_messages', 'conversation_summaries', 'langflows'}
+        required_tables = {'chat_messages', 'conversation_summaries', 'langflows', 'api_logs'}
         existing_tables = set(inspector.get_table_names())
         print(f"🔍 현재 데이터베이스에 존재하는 테이블: {existing_tables}")
         print(f"🔍 필요한 테이블: {required_tables}")
