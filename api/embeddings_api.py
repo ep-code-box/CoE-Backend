@@ -42,7 +42,7 @@ async def create_embeddings(request: EmbeddingRequest):
         rag_embeddings_url = f"{RAG_PIPELINE_URL}/api/v1/embeddings" # Corrected endpoint
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(rag_embeddings_url, json=request.model_dump(), timeout=30.0)
+            response = await client.post(rag_embeddings_url, json=request.model_dump(), timeout=300.0)
             response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
 
         rag_response_data = response.json()

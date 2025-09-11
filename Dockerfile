@@ -48,4 +48,4 @@ EXPOSE 8000
 
 # 10. 컨테이너 실행 시 실행할 명령어
 # 로그 설정, Alembic 마이그레이션 적용 후 gunicorn을 사용하여 프로덕션 환경에서 직접 FastAPI 앱 실행
-CMD ["sh", "-c", "/app/scripts/setup_logs.sh && if [ \"${RUN_MIGRATIONS:-true}\" = \"true\" ]; then echo 'Running Alembic migrations...'; alembic upgrade head; else echo 'Skipping Alembic migrations (RUN_MIGRATIONS=false)'; fi && gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000"]
+CMD ["sh", "-c", "/app/scripts/setup_logs.sh && if [ \"${RUN_MIGRATIONS:-true}\" = \"true\" ]; then echo 'Running Alembic migrations...'; alembic upgrade head; else echo 'Skipping Alembic migrations (RUN_MIGRATIONS=false)'; fi && gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:8000"]

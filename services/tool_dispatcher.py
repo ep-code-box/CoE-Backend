@@ -209,7 +209,7 @@ async def run_langflow_tool(langflow: LangFlow, tool_input: Optional[Dict[str, A
 
         logger.info(f"Calling LangFlow execution endpoint: {execution_url}")
         async with httpx.AsyncClient() as client:
-            response = await client.post(execution_url, json=request_body, timeout=60.0)
+            response = await client.post(execution_url, json=request_body, timeout=300.0)
             response.raise_for_status() # 4xx, 5xx 에러 발생 시 예외 처리
             return response.json()
 

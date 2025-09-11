@@ -362,7 +362,7 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         async with httpx.AsyncClient() as client:
             rag_request_payload = {"query": user_query, "k": 10, "group_name": req.group_name}
             logger.info(f"Calling RAG service at {RAG_SERVICE_URL} with payload: {rag_request_payload}")
-            response = await client.post(RAG_SERVICE_URL, json=rag_request_payload, timeout=30.0)
+            response = await client.post(RAG_SERVICE_URL, json=rag_request_payload, timeout=300.0)
             response.raise_for_status()
             retrieved_documents = response.json()
             logger.info(f"Received {len(retrieved_documents)} documents from RAG service.")
