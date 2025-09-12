@@ -139,6 +139,28 @@ def _format_flow_outputs_for_chat(outputs: Any) -> str:
     except Exception:
         return str(outputs)
 
+def _format_tool_result_for_chat(result: Any) -> str:
+    """Format Python tool execution result into a user-friendly message.
+
+    Common tool return shape is {"messages": [{"role": "assistant", "content": "..."}, ...]}.
+    If present, return the first assistant content. Otherwise, stringify compactly.
+    """
+    try:
+        if isinstance(result, str):
+            return result
+        if isinstance(result, dict):
+            msgs = result.get("messages")
+            if isinstance(msgs, list) and msgs:
+                first = msgs[0]
+                if isinstance(first, dict):
+                    content = first.get("content")
+                    if isinstance(content, str) and content.strip():
+                        return content.strip()
+        import json as _json
+        return _json.dumps(result, ensure_ascii=False, default=str)
+    except Exception:
+        return str(result)
+
 async def _llm_generate_tool_arguments(tool_schema: Dict[str, Any], user_text: str) -> Optional[Dict[str, Any]]:
     """Ask the LLM to produce a strict JSON object of arguments for the selected tool.
 
@@ -594,21 +616,9 @@ async def maybe_execute_best_tool_by_description(
             # Let the LLM infer arguments for the selected tool using its schema
             args = await _llm_generate_tool_arguments(py_schema_index.get(name) or {}, utext)
             result = await fn(args, state)
-            # Pretty-print dict-like results; otherwise str()
-            try:
-                import json as _json
-                formatted = _json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result
-            except Exception:
-                formatted = str(result)
-            content = (
-                f"✅ 자동 라우팅(의도분석): Tool '{name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
-                f"결과:\n{formatted}"
-            )
+            content = _format_tool_result_for_chat(result)
         except Exception as e:
-            content = (
-                f"❌ 자동 라우팅(의도분석) 실패: Tool '{name}' 실행 중 오류\n\n"
-                f"오류: {e}"
-            )
+            content = f"도구 실행 중 오류가 발생했습니다: {e}"
         return {"role": "assistant", "content": content}
 
     # Flow
@@ -628,16 +638,10 @@ async def maybe_execute_best_tool_by_description(
 
     if exec_result.success:
         outputs = exec_result.outputs or {}
-        content = (
-            f"✅ 자동 라우팅(의도분석): LangFlow '{flow.name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
-            f"출력:\n{_format_flow_outputs_for_chat(outputs)}"
-        )
+        content = _format_flow_outputs_for_chat(outputs)
     else:
-        content = (
-            f"❌ 자동 라우팅(의도분석) 실패: LangFlow '{flow.name}' 실행 중 오류\n\n"
-            f"오류: {exec_result.error}"
-        )
-        return {"role": "assistant", "content": content}
+        content = f"LangFlow 실행 중 오류가 발생했습니다: {exec_result.error}"
+    return {"role": "assistant", "content": content}
 
 
 async def maybe_execute_best_tool_by_llm(
@@ -763,18 +767,9 @@ async def maybe_execute_best_tool_by_llm(
                 # Ask LLM to produce arguments according to the tool schema
                 args = await _llm_generate_tool_arguments(py_schema_index.get(pname) or {}, user_text)
                 result = await fn(args, state)
-                try:
-                    import json as _json
-                    formatted = _json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result
-                except Exception:
-                    formatted = str(result)
-                msg = (
-                    f"✅ 자동 라우팅(의도분석): Tool '{pname}' 실행 완료\n\n결과:\n{formatted}"
-                )
+                msg = _format_tool_result_for_chat(result)
             except Exception as e:
-                msg = (
-                    f"❌ 자동 라우팅(의도분석) 실패: Tool '{pname}' 실행 오류\n\n오류: {e}"
-                )
+                msg = f"도구 실행 중 오류가 발생했습니다: {e}"
             return {"role": "assistant", "content": msg}
 
         if ptype == "flow":
@@ -787,13 +782,9 @@ async def maybe_execute_best_tool_by_llm(
             exec_result = await langflow_service.execute_flow(flow_data, inputs)
             if exec_result.success:
                 outputs = exec_result.outputs or {}
-                msg = (
-                    f"✅ 자동 라우팅(의도분석): LangFlow '{pname}' 실행 완료\n\n출력:\n{_format_flow_outputs_for_chat(outputs)}"
-                )
+                msg = _format_flow_outputs_for_chat(outputs)
             else:
-                msg = (
-                    f"❌ 자동 라우팅(의도분석) 실패: LangFlow '{pname}' 실행 오류\n\n오류: {exec_result.error}"
-                )
+                msg = f"LangFlow 실행 중 오류가 발생했습니다: {exec_result.error}"
             return {"role": "assistant", "content": msg}
 
         logger.info(f"[AUTO-ROUTE][LLM] Unknown pick type: {ptype}")
