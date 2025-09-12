@@ -26,6 +26,38 @@ AUTO_ROUTE_MODEL = os.getenv("AUTO_ROUTE_MODEL", "gpt-4o-mini")
 AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
 AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
 
+def _extract_text_from_raw_string(s: str) -> Optional[str]:
+    """Heuristically extract a natural-language message from a raw LangFlow repr string.
+
+    Targets patterns like:
+    - ChatOutputResponse(message='...')
+    - artifacts={'message': '...'}
+    - data={'text': '...'}
+    - outputs={'message': {'message': '...'}}
+    Returns the first plausible match.
+    """
+    try:
+        import re as _re
+        # Prefer explicit chat output message
+        m = _re.search(r"ChatOutputResponse\(message='([^']+)'", s)
+        if m:
+            return m.group(1).strip()
+        # Artifacts message
+        m = _re.search(r"artifacts=\{[^}]*'message'\s*:\s*'([^']+)'", s)
+        if m:
+            return m.group(1).strip()
+        # Outputs.message.message
+        m = _re.search(r"outputs=\{[^}]*'message'\s*:\s*\{[^}]*'message'\s*:\s*'([^']+)'", s)
+        if m:
+            return m.group(1).strip()
+        # Generic 'text': '...'
+        m = _re.search(r"'text'\s*:\s*'([^']+)'", s)
+        if m:
+            return m.group(1).strip()
+    except Exception:
+        pass
+    return None
+
 def _extract_primary_text(obj: Any) -> Optional[str]:
     """Best-effort extraction of a human-friendly text from LangFlow-like outputs.
 
@@ -39,6 +71,12 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
 
     # Dict path: prefer specific keys
     if isinstance(obj, dict):
+        # Handle 'raw' string payloads by attempting to parse for a likely message
+        raw = obj.get("raw")
+        if isinstance(raw, str):
+            parsed = _extract_text_from_raw_string(raw)
+            if parsed:
+                return parsed
         # Avoid raw
         for k in ("message", "text", "output", "result", "content"):
             if k in obj and k != "raw":
@@ -100,6 +138,57 @@ def _format_flow_outputs_for_chat(outputs: Any) -> str:
         return _json.dumps(outputs, ensure_ascii=False, default=str)
     except Exception:
         return str(outputs)
+
+async def _llm_generate_tool_arguments(tool_schema: Dict[str, Any], user_text: str) -> Optional[Dict[str, Any]]:
+    """Ask the LLM to produce a strict JSON object of arguments for the selected tool.
+
+    Relies on the tool's JSON schema (function.parameters). Returns dict or None.
+    """
+    try:
+        if not isinstance(tool_schema, dict):
+            return None
+        fn = tool_schema.get("function") or {}
+        params = fn.get("parameters")
+        if not params:
+            return None
+
+        import json as _json
+        system = (
+            "You generate ONLY JSON arguments for a function call.\n"
+            "Rules:\n"
+            "- Output a single JSON object matching the provided JSON Schema.\n"
+            "- Do not include explanations, code fences, or extra text.\n"
+            "- If a field is not inferable, omit it."
+        )
+        user = (
+            "Function schema (JSON Schema for arguments):\n"
+            f"{_json.dumps(params, ensure_ascii=False)}\n\n"
+            f"User input:\n{user_text}"
+        )
+        completion = await default_llm_client.chat.completions.create(
+            model=AUTO_ROUTE_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0,
+            max_tokens=256,
+        )
+        content = completion.choices[0].message.content or ""
+        # Extract JSON object
+        try:
+            return _json.loads(content)
+        except Exception:
+            import re as _re
+            m = _re.search(r"\{.*\}", content, _re.S)
+            if not m:
+                return None
+            return _json.loads(m.group(0))
+    except Exception:
+        return None
+
+### Note: No regex-based argument inference here.
+### Tool arguments should be supplied by the LLM via tool calls.
 
 async def dispatch_and_execute(tool_name: str, tool_input: Optional[Dict[str, Any]], state: "AgentState") -> Optional[Any]:
     """
@@ -406,6 +495,7 @@ async def maybe_execute_best_tool_by_description(
     # 1) Evaluate Python tools in context
     py_candidates: List[Tuple[int, str, Callable, str]] = []  # (score, name, fn, matched_kw)
     schemas, functions = get_available_tools_for_context(ctx)
+    py_schema_index: Dict[str, Dict[str, Any]] = {}
     logger.info(f"[AUTO-ROUTE] Evaluating Python tools for context='{ctx}' (count={len(schemas)})")
     for sch in schemas:
         try:
@@ -415,6 +505,8 @@ async def maybe_execute_best_tool_by_description(
             if not name:
                 logger.info("[AUTO-ROUTE][PY] Skip: schema has no function name")
                 continue
+            if isinstance(sch, dict):
+                py_schema_index[name] = sch
             if not desc:
                 logger.info(f"[AUTO-ROUTE][PY] Skip '{name}': no description")
                 continue
@@ -499,7 +591,9 @@ async def maybe_execute_best_tool_by_description(
     if source == "python":
         name, fn = payload
         try:
-            result = await fn(None, state)
+            # Let the LLM infer arguments for the selected tool using its schema
+            args = await _llm_generate_tool_arguments(py_schema_index.get(name) or {}, utext)
+            result = await fn(args, state)
             # Pretty-print dict-like results; otherwise str()
             try:
                 import json as _json
@@ -563,6 +657,7 @@ async def maybe_execute_best_tool_by_llm(
     # Collect Python tool candidates
     schemas, functions = get_available_tools_for_context(ctx)
     py_candidates: List[Dict[str, str]] = []
+    py_schema_index: Dict[str, Dict[str, Any]] = {}
     for sch in schemas:
         try:
             func = sch.get("function", {}) if isinstance(sch, dict) else {}
@@ -570,6 +665,8 @@ async def maybe_execute_best_tool_by_llm(
             desc = func.get("description") or sch.get("description")
             if not name or not desc:
                 continue
+            if isinstance(sch, dict):
+                py_schema_index[name] = sch
             d = str(desc)
             if len(d) > AUTO_ROUTE_MAX_DESC_CHARS:
                 d = d[:AUTO_ROUTE_MAX_DESC_CHARS] + "…"
@@ -663,7 +760,9 @@ async def maybe_execute_best_tool_by_llm(
                 logger.info(f"[AUTO-ROUTE][LLM] Picked python tool not found: {pname}")
                 return None
             try:
-                result = await fn(None, state)
+                # Ask LLM to produce arguments according to the tool schema
+                args = await _llm_generate_tool_arguments(py_schema_index.get(pname) or {}, user_text)
+                result = await fn(args, state)
                 try:
                     import json as _json
                     formatted = _json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result
@@ -712,6 +811,8 @@ async def maybe_execute_best_tool(
     AUTO_ROUTE_STRATEGY=llm|text (default llm). Falls back to text if LLM returns None.
     """
     strategy = AUTO_ROUTE_STRATEGY
+    if strategy == "off":
+        return None
     if strategy == "llm":
         picked = await maybe_execute_best_tool_by_llm(user_text, context, state)
         if picked is not None:
