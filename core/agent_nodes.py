@@ -52,13 +52,8 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                 last_user = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
                 break
         if last_user:
-            # 1) Try Python tools first (description-based)
-            auto_msg = await tool_dispatcher.maybe_execute_python_tool_by_description(last_user, context, state)
-            if auto_msg is not None:
-                history.append(auto_msg)
-                return {"history": history}
-            # 2) Fall back to LangFlow description-based routing
-            auto_msg = await tool_dispatcher.maybe_execute_flow_by_description(last_user, context)
+            # Evaluate both Python tools and LangFlows, pick best match
+            auto_msg = await tool_dispatcher.maybe_execute_best_tool_by_description(last_user, context, state)
             if auto_msg is not None:
                 history.append(auto_msg)
                 return {"history": history}

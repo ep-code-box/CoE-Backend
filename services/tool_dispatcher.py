@@ -310,122 +310,142 @@ def _flow_allowed_in_context(db: Session, flow: LangFlow, context: Optional[str]
     return allowed is not None
 
 
-async def maybe_execute_flow_by_description(user_text: str, context: Optional[str]) -> Optional[Dict[str, Any]]:
-    """
-    If any active flow's description contains quoted keywords that appear in user_text,
-    execute the best-matching flow and return an assistant message dict. Else None.
-    """
-    if not user_text:
-        return None
-
-    db: Session = SessionLocal()
-    try:
-        flows = LangFlowService.get_all_flows(db)
-        candidates: List[Tuple[int, LangFlow, str]] = []
-        utext = user_text or ""
-        for f in flows:
-            if not getattr(f, "is_active", True):
-                continue
-            if not _flow_allowed_in_context(db, f, context):
-                continue
-            best_kw = None
-            best_score = 0
-            for kw in _extract_keywords_from_description(f.description):
-                if not kw:
-                    continue
-                if kw in utext:
-                    # weight by length to favor specific phrases
-                    score = max(1, len(kw))
-                    if score > best_score:
-                        best_kw = kw
-                        best_score = score
-            if best_kw:
-                candidates.append((best_score, f, best_kw))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        _, sel, matched_kw = candidates[0]
-
-        flow_data = LangFlowService.get_flow_data_as_dict(sel)
-        inputs = {"input_value": user_text, "message": user_text}
-        exec_result = await langflow_service.execute_flow(flow_data, inputs)
-
-        if exec_result.success:
-            outputs = exec_result.outputs or {}
-            content = (
-                f"✅ 자동 라우팅: LangFlow '{sel.name}' 실행됨 (키워드: '{matched_kw}')\n\n"
-                f"출력:\n{outputs}"
-            )
-        else:
-            content = (
-                f"❌ 자동 라우팅 실패: LangFlow '{sel.name}' 실행 중 오류\n\n"
-                f"오류: {exec_result.error}"
-            )
-
-        return {"role": "assistant", "content": content}
-    finally:
-        db.close()
-
-
-async def maybe_execute_python_tool_by_description(
+async def maybe_execute_best_tool_by_description(
     user_text: str, context: Optional[str], state: "AgentState"
 ) -> Optional[Dict[str, Any]]:
-    """Description-based auto selection among Python tools available in the context.
-
-    Uses the same keyword extraction and scoring rule as flows. If matched, executes
-    the tool function and returns an assistant message dict. Otherwise returns None.
+    """Evaluate both Python tools and LangFlow flows using the same description-matching rule,
+    pick the highest scoring candidate, and execute it. Logs info-level reasons for skips.
     """
     if not user_text:
+        logger.info("[AUTO-ROUTE] Skip: empty user_text")
         return None
 
     ctx = context or ""
-    schemas, functions = get_available_tools_for_context(ctx)
-    if not schemas:
-        return None
+    utext = user_text or ""
 
-    candidates: List[Tuple[int, Dict[str, Any], str]] = []  # (score, schema, keyword)
+    # 1) Evaluate Python tools in context
+    py_candidates: List[Tuple[int, str, Callable, str]] = []  # (score, name, fn, matched_kw)
+    schemas, functions = get_available_tools_for_context(ctx)
+    logger.info(f"[AUTO-ROUTE] Evaluating Python tools for context='{ctx}' (count={len(schemas)})")
     for sch in schemas:
         try:
             func = sch.get("function", {}) if isinstance(sch, dict) else {}
             name = func.get("name")
             desc = func.get("description") or sch.get("description")
-            if not name or not desc:
+            if not name:
+                logger.info("[AUTO-ROUTE][PY] Skip: schema has no function name")
+                continue
+            if not desc:
+                logger.info(f"[AUTO-ROUTE][PY] Skip '{name}': no description")
+                continue
+            kws = _extract_keywords_from_description(desc)
+            if not kws:
+                logger.info(f"[AUTO-ROUTE][PY] Skip '{name}': no keywords extracted from description")
                 continue
             best_kw = None
             best_score = 0
-            for kw in _extract_keywords_from_description(desc):
-                if kw and kw in user_text:
+            for kw in kws:
+                if kw in utext:
                     score = max(1, len(kw))
                     if score > best_score:
                         best_kw = kw
                         best_score = score
-            if best_kw:
-                candidates.append((best_score, sch, best_kw))
-        except Exception:
-            continue
+            if not best_kw:
+                logger.info(f"[AUTO-ROUTE][PY] Skip '{name}': no keyword matched in user_text; kws={kws}")
+                continue
+            tool_fn = functions.get(name)
+            if not tool_fn:
+                logger.info(f"[AUTO-ROUTE][PY] Skip '{name}': function not found in registry")
+                continue
+            logger.info(f"[AUTO-ROUTE][PY] Candidate '{name}' matched_kw='{best_kw}' score={best_score}")
+            py_candidates.append((best_score, name, tool_fn, best_kw))
+        except Exception as e:
+            logger.info(f"[AUTO-ROUTE][PY] Skip schema due to error: {e}")
 
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    _, sel_schema, matched_kw = candidates[0]
-    sel_name = sel_schema["function"]["name"]
-    tool_fn = functions.get(sel_name)
-    if not tool_fn:
-        return None
-
+    # 2) Evaluate LangFlow flows
+    flow_candidates: List[Tuple[int, LangFlow, str]] = []  # (score, flow, matched_kw)
+    db: Session = SessionLocal()
     try:
-        result = await tool_fn(None, state)  # let tool parse from state if needed
-        content = (
-            f"✅ 자동 라우팅: Tool '{sel_name}' 실행됨 (키워드: '{matched_kw}')\n\n"
-            f"결과:\n{result}"
-        )
-    except Exception as e:
-        content = (
-            f"❌ 자동 라우팅 실패: Tool '{sel_name}' 실행 중 오류\n\n"
-            f"오류: {e}"
-        )
+        flows = LangFlowService.get_all_flows(db)
+        logger.info(f"[AUTO-ROUTE] Evaluating Flows (count={len(flows)}) for context='{ctx}'")
+        for f in flows:
+            if not getattr(f, "is_active", True):
+                logger.info(f"[AUTO-ROUTE][FLOW] Skip '{getattr(f,'name',None)}': inactive")
+                continue
+            if not _flow_allowed_in_context(db, f, ctx):
+                logger.info(
+                    f"[AUTO-ROUTE][FLOW] Skip '{f.name}': not allowed in context '{ctx}'"
+                )
+                continue
+            kws = _extract_keywords_from_description(f.description)
+            if not kws:
+                logger.info(f"[AUTO-ROUTE][FLOW] Skip '{f.name}': no keywords extracted from description")
+                continue
+            best_kw = None
+            best_score = 0
+            for kw in kws:
+                if kw in utext:
+                    score = max(1, len(kw))
+                    if score > best_score:
+                        best_kw = kw
+                        best_score = score
+            if not best_kw:
+                logger.info(f"[AUTO-ROUTE][FLOW] Skip '{f.name}': no keyword matched in user_text; kws={kws}")
+                continue
+            logger.info(f"[AUTO-ROUTE][FLOW] Candidate '{f.name}' matched_kw='{best_kw}' score={best_score}")
+            flow_candidates.append((best_score, f, best_kw))
+    finally:
+        db.close()
 
+    # 3) Pick the best among all candidates
+    best: Optional[Tuple[str, int, str, Any]] = None  # (source, score, matched_kw, payload)
+
+    for score, name, fn, kw in py_candidates:
+        if best is None or score > best[1]:
+            best = ("python", score, kw, (name, fn))
+
+    for score, flow, kw in flow_candidates:
+        if best is None or score > best[1]:
+            best = ("flow", score, kw, flow)
+
+    if best is None:
+        logger.info("[AUTO-ROUTE] No candidates matched. Falling back to LLM.")
+        return None
+
+    source, score, matched_kw, payload = best
+    logger.info(f"[AUTO-ROUTE] Selected '{source}' candidate with score={score}, kw='{matched_kw}'")
+
+    # 4) Execute selected candidate
+    if source == "python":
+        name, fn = payload
+        try:
+            result = await fn(None, state)
+            content = (
+                f"✅ 자동 라우팅: Tool '{name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
+                f"결과:\n{result}"
+            )
+        except Exception as e:
+            content = (
+                f"❌ 자동 라우팅 실패: Tool '{name}' 실행 중 오류\n\n"
+                f"오류: {e}"
+            )
+        return {"role": "assistant", "content": content}
+
+    # Flow
+    flow: LangFlow = payload
+    flow_data = LangFlowService.get_flow_data_as_dict(flow)
+    inputs = {"input_value": user_text, "message": user_text}
+    exec_result = await langflow_service.execute_flow(flow_data, inputs)
+
+    if exec_result.success:
+        outputs = exec_result.outputs or {}
+        content = (
+            f"✅ 자동 라우팅: LangFlow '{flow.name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
+            f"출력:\n{outputs}"
+        )
+    else:
+        content = (
+            f"❌ 자동 라우팅 실패: LangFlow '{flow.name}' 실행 중 오류\n\n"
+            f"오류: {exec_result.error}"
+        )
     return {"role": "assistant", "content": content}
