@@ -254,10 +254,54 @@ class LangFlowExecutionService:
             # 실행 결과에서 실제 output 추출
             # LangFlow의 결과 구조에 따라 파싱 방식이 달라질 수 있습니다.
             outputs = {}
-            if isinstance(result_data, dict) and "outputs" in result_data:
-                 outputs = result_data.get("outputs", [{}])[0]
+            # Common shapes
+            if isinstance(result_data, dict):
+                if "outputs" in result_data:
+                    try:
+                        outv = result_data.get("outputs")
+                        if isinstance(outv, list) and outv:
+                            candidate = outv[0]
+                            if isinstance(candidate, dict):
+                                outputs = candidate
+                            else:
+                                outputs = {"value": candidate}
+                        elif isinstance(outv, dict):
+                            outputs = outv
+                    except Exception:
+                        pass
+                elif "result" in result_data:
+                    outputs = result_data.get("result") or {}
             elif hasattr(result_data, 'outputs'):
-                 outputs = result_data.outputs[0]
+                try:
+                    outputs = result_data.outputs[0]
+                except Exception:
+                    outputs = {"value": getattr(result_data, 'outputs', None)}
+
+            # Heuristic: try to extract a primary text field if still empty
+            def _find_text(obj):
+                try:
+                    if isinstance(obj, dict):
+                        for k in ("text", "content", "message", "output", "result"):
+                            if k in obj and isinstance(obj[k], (str, bytes)) and obj[k]:
+                                return obj[k]
+                        # scan nested
+                        for v in obj.values():
+                            s = _find_text(v)
+                            if s:
+                                return s
+                    elif isinstance(obj, list):
+                        for it in obj:
+                            s = _find_text(it)
+                            if s:
+                                return s
+                except Exception:
+                    return None
+                return None
+
+            if not outputs or (isinstance(outputs, dict) and not outputs):
+                primary = _find_text(result_data)
+                if primary:
+                    outputs = {"text": primary}
 
 
             return ExecuteFlowResponse(

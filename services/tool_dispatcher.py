@@ -439,7 +439,16 @@ async def maybe_execute_best_tool_by_description(
     # Flow
     flow: LangFlow = payload
     flow_data = LangFlowService.get_flow_data_as_dict(flow)
-    inputs = {"input_value": user_text, "message": user_text}
+    # Provide a broad set of common input aliases used across flows
+    inputs = {
+        "input_value": user_text,
+        "message": user_text,
+        "input": user_text,
+        "text": user_text,
+        "chat_input": user_text,
+        "user_question": user_text,
+        "prompt": user_text,
+    }
     exec_result = await langflow_service.execute_flow(flow_data, inputs)
 
     if exec_result.success:
