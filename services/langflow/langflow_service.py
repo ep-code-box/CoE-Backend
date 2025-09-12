@@ -4,6 +4,7 @@ LangFlow 실행 서비스
 """
 
 import time
+import inspect
 from typing import Dict, Any, Optional
 from core.schemas import ExecuteFlowResponse
 
@@ -16,7 +17,32 @@ def _resolve_langflow_runner():
         from langflow.processing.process import process_graph_cached  # type: ignore
 
         def _runner(flow_data, inputs):
-            return process_graph_cached(data_graph=flow_data, inputs=inputs or {})
+            # Introspect signature for maximum compatibility
+            try:
+                sig = inspect.signature(process_graph_cached)  # type: ignore
+                params = list(sig.parameters.keys())
+                kwargs = {}
+                # flow graph parameter
+                if 'data_graph' in params:
+                    kwargs['data_graph'] = flow_data
+                elif 'graph' in params:
+                    kwargs['graph'] = flow_data
+                elif params:
+                    # fallback to first parameter by name
+                    kwargs[params[0]] = flow_data
+                # inputs parameter
+                if 'inputs' in params:
+                    kwargs['inputs'] = inputs or {}
+                elif 'input' in params:
+                    kwargs['input'] = inputs or {}
+                elif 'input_dict' in params:
+                    kwargs['input_dict'] = inputs or {}
+                elif 'data' in params:
+                    kwargs['data'] = inputs or {}
+                return process_graph_cached(**kwargs)  # type: ignore
+            except Exception:
+                # last resort: positional
+                return process_graph_cached(flow_data, inputs or {})  # type: ignore
 
         return _runner
     except Exception:
@@ -27,11 +53,42 @@ def _resolve_langflow_runner():
         from langflow.load import run_flow_from_json  # type: ignore
 
         def _runner(flow_data, inputs):
-            # 다양한 시그니처를 관대하게 시도
             try:
-                return run_flow_from_json(flow=flow_data, inputs=inputs or {}, tweaks=None)  # type: ignore
-            except TypeError:
-                return run_flow_from_json(flow=flow_data, inputs=inputs or {})  # type: ignore
+                sig = inspect.signature(run_flow_from_json)  # type: ignore
+                params = list(sig.parameters.keys())
+                kwargs = {}
+                # flow graph parameter
+                if 'flow' in params:
+                    kwargs['flow'] = flow_data
+                elif 'data' in params:
+                    kwargs['data'] = flow_data
+                elif 'graph' in params:
+                    kwargs['graph'] = flow_data
+                elif params:
+                    kwargs[params[0]] = flow_data
+                # inputs parameter (try multiple names)
+                if 'inputs' in params:
+                    kwargs['inputs'] = inputs or {}
+                elif 'input' in params:
+                    kwargs['input'] = inputs or {}
+                elif 'input_dict' in params:
+                    kwargs['input_dict'] = inputs or {}
+                elif 'data' in params and 'flow' in kwargs:
+                    # if data exists and not used for graph, use for inputs
+                    kwargs['data'] = inputs or {}
+                # tweaks if available
+                if 'tweaks' in params and 'tweaks' not in kwargs:
+                    kwargs['tweaks'] = None
+                return run_flow_from_json(**kwargs)  # type: ignore
+            except Exception:
+                # fallback attempts with common patterns
+                try:
+                    return run_flow_from_json(flow=flow_data, input=inputs or {})  # type: ignore
+                except Exception:
+                    try:
+                        return run_flow_from_json(flow_data, inputs or {})  # type: ignore
+                    except Exception:
+                        return run_flow_from_json(flow=flow_data)  # type: ignore
 
         return _runner
     except Exception:
@@ -43,9 +100,34 @@ def _resolve_langflow_runner():
 
         def _runner(flow_data, inputs):
             try:
-                return run_flow_from_json(flow=flow_data, inputs=inputs or {}, tweaks=None)  # type: ignore
-            except TypeError:
-                return run_flow_from_json(flow=flow_data, inputs=inputs or {})  # type: ignore
+                sig = inspect.signature(run_flow_from_json)  # type: ignore
+                params = list(sig.parameters.keys())
+                kwargs = {}
+                if 'flow' in params:
+                    kwargs['flow'] = flow_data
+                elif 'data' in params:
+                    kwargs['data'] = flow_data
+                elif 'graph' in params:
+                    kwargs['graph'] = flow_data
+                elif params:
+                    kwargs[params[0]] = flow_data
+                if 'inputs' in params:
+                    kwargs['inputs'] = inputs or {}
+                elif 'input' in params:
+                    kwargs['input'] = inputs or {}
+                elif 'input_dict' in params:
+                    kwargs['input_dict'] = inputs or {}
+                if 'tweaks' in params and 'tweaks' not in kwargs:
+                    kwargs['tweaks'] = None
+                return run_flow_from_json(**kwargs)  # type: ignore
+            except Exception:
+                try:
+                    return run_flow_from_json(flow=flow_data, input=inputs or {})  # type: ignore
+                except Exception:
+                    try:
+                        return run_flow_from_json(flow_data, inputs or {})  # type: ignore
+                    except Exception:
+                        return run_flow_from_json(flow=flow_data)  # type: ignore
 
         return _runner
     except Exception:
