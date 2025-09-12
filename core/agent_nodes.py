@@ -52,8 +52,8 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                 last_user = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
                 break
         if last_user:
-            # Evaluate both Python tools and LangFlows, pick best match
-            auto_msg = await tool_dispatcher.maybe_execute_best_tool_by_description(last_user, context, state)
+            # Evaluate tools via strategy (LLM intent by default, fallback to text)
+            auto_msg = await tool_dispatcher.maybe_execute_best_tool(last_user, context, state)
             if auto_msg is not None:
                 history.append(auto_msg)
                 return {"history": history}

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from core.database import LangFlow, LangflowToolMapping, SessionLocal
 from services.db_langflow_service import LangFlowService
 from services.langflow.langflow_service import langflow_service
+from core.llm_client import get_client_for_model, client as default_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,10 @@ logger = logging.getLogger(__name__)
 TOOLS_BASE_DIR = "tools"
 # LangFlow 실행을 위한 기본 URL
 LANGFLOW_BASE_URL = os.getenv("LANGFLOW_BASE_URL", "http://localhost:8000")
+AUTO_ROUTE_STRATEGY = os.getenv("AUTO_ROUTE_STRATEGY", "llm").lower()  # llm|text
+AUTO_ROUTE_MODEL = os.getenv("AUTO_ROUTE_MODEL", "gpt-4o-mini")
+AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
+AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
 
 async def dispatch_and_execute(tool_name: str, tool_input: Optional[Dict[str, Any]], state: "AgentState") -> Optional[Any]:
     """
@@ -449,3 +454,174 @@ async def maybe_execute_best_tool_by_description(
             f"오류: {exec_result.error}"
         )
     return {"role": "assistant", "content": content}
+
+
+async def maybe_execute_best_tool_by_llm(
+    user_text: str, context: Optional[str], state: "AgentState"
+) -> Optional[Dict[str, Any]]:
+    """Use LLM intent analysis to pick the best tool/flow.
+
+    Prompts the LLM with user_text and candidate list to choose one.
+    Returns assistant message with execution result, or None if no suitable tool.
+    """
+    if not user_text:
+        logger.info("[AUTO-ROUTE][LLM] Skip: empty user_text")
+        return None
+
+    ctx = context or ""
+
+    # Collect Python tool candidates
+    schemas, functions = get_available_tools_for_context(ctx)
+    py_candidates: List[Dict[str, str]] = []
+    for sch in schemas:
+        try:
+            func = sch.get("function", {}) if isinstance(sch, dict) else {}
+            name = func.get("name")
+            desc = func.get("description") or sch.get("description")
+            if not name or not desc:
+                continue
+            d = str(desc)
+            if len(d) > AUTO_ROUTE_MAX_DESC_CHARS:
+                d = d[:AUTO_ROUTE_MAX_DESC_CHARS] + "…"
+            py_candidates.append({"type": "python", "name": name, "description": d})
+        except Exception:
+            continue
+
+    # Collect Flow candidates allowed in context
+    db: Session = SessionLocal()
+    flow_candidates: List[Dict[str, str]] = []
+    flow_index: Dict[str, LangFlow] = {}
+    try:
+        for f in LangFlowService.get_all_flows(db):
+            if not getattr(f, "is_active", True):
+                continue
+            if not _flow_allowed_in_context(db, f, ctx):
+                continue
+            desc = getattr(f, "description", None) or ""
+            if len(desc) > AUTO_ROUTE_MAX_DESC_CHARS:
+                desc = desc[:AUTO_ROUTE_MAX_DESC_CHARS] + "…"
+            nm = getattr(f, "name", None)
+            if not nm:
+                continue
+            flow_candidates.append({"type": "flow", "name": nm, "description": str(desc)})
+            flow_index[nm] = f
+    finally:
+        db.close()
+
+    candidates = py_candidates + flow_candidates
+    if not candidates:
+        logger.info("[AUTO-ROUTE][LLM] No candidates available in context; fallback to LLM")
+        return None
+
+    # Cap candidate list to reduce token usage
+    if len(candidates) > AUTO_ROUTE_MAX_CANDIDATES:
+        logger.info(
+            f"[AUTO-ROUTE][LLM] Capping candidates {len(candidates)} -> {AUTO_ROUTE_MAX_CANDIDATES}"
+        )
+        candidates = candidates[:AUTO_ROUTE_MAX_CANDIDATES]
+
+    # Build prompt for selection
+    system = (
+        "You are a strict tool router. Your task is to choose exactly one best candidate (a Python tool or a Flow) that can solve the user's request, or return null when none fits."
+        "\nRules:" 
+        "\n- Obey the provided context restrictions implicitly (candidates are already filtered)."
+        "\n- Prefer semantic fit and specificity over generic matches."
+        "\n- If multiple seem plausible, pick the one whose description most directly addresses the user's intent."
+        "\n- If no candidate clearly applies, return null."
+        "\nOutput strictly JSON only with this schema: {\"pick\": {\"type\": \"python|flow\", \"name\": string} | null}."
+    )
+    user = (
+        "Decide now. Return ONLY the JSON object (no extra text).\n"
+        f"User input: {user_text}\n"
+        f"Context: {ctx or '-'}\n"
+        f"Candidates: {candidates}"
+    )
+
+    llm = default_llm_client  # AsyncOpenAI
+    try:
+        completion = await llm.chat.completions.create(
+            model=AUTO_ROUTE_MODEL,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0,
+            max_tokens=256,
+        )
+        content = completion.choices[0].message.content or ""
+        import json as _json
+        data = None
+        try:
+            data = _json.loads(content)
+        except Exception:
+            # try to extract JSON blob
+            import re as _re
+            m = _re.search(r"\{.*\}", content, _re.S)
+            if m:
+                data = _json.loads(m.group(0))
+        if not data or data.get("pick") in (None, "none"):
+            logger.info(f"[AUTO-ROUTE][LLM] Model declined to pick. content={content!r}")
+            return None
+        pick = data.get("pick", {})
+        ptype = pick.get("type")
+        pname = pick.get("name")
+        logger.info(f"[AUTO-ROUTE][LLM] Picked type='{ptype}' name='{pname}'")
+
+        if ptype == "python":
+            fn = functions.get(pname)
+            if not fn:
+                logger.info(f"[AUTO-ROUTE][LLM] Picked python tool not found: {pname}")
+                return None
+            try:
+                result = await fn(None, state)
+                msg = (
+                    f"✅ 자동 라우팅(의도분석): Tool '{pname}' 실행 완료\n\n결과:\n{result}"
+                )
+            except Exception as e:
+                msg = (
+                    f"❌ 자동 라우팅(의도분석) 실패: Tool '{pname}' 실행 오류\n\n오류: {e}"
+                )
+            return {"role": "assistant", "content": msg}
+
+        if ptype == "flow":
+            fl = flow_index.get(pname)
+            if not fl:
+                logger.info(f"[AUTO-ROUTE][LLM] Picked flow not found: {pname}")
+                return None
+            flow_data = LangFlowService.get_flow_data_as_dict(fl)
+            inputs = {"input_value": user_text, "message": user_text}
+            exec_result = await langflow_service.execute_flow(flow_data, inputs)
+            if exec_result.success:
+                outputs = exec_result.outputs or {}
+                msg = (
+                    f"✅ 자동 라우팅(의도분석): LangFlow '{pname}' 실행 완료\n\n출력:\n{outputs}"
+                )
+            else:
+                msg = (
+                    f"❌ 자동 라우팅(의도분석) 실패: LangFlow '{pname}' 실행 오류\n\n오류: {exec_result.error}"
+                )
+            return {"role": "assistant", "content": msg}
+
+        logger.info(f"[AUTO-ROUTE][LLM] Unknown pick type: {ptype}")
+        return None
+    except Exception as e:
+        logger.info(f"[AUTO-ROUTE][LLM] Selection error: {e}")
+        return None
+
+
+async def maybe_execute_best_tool(
+    user_text: str, context: Optional[str], state: "AgentState"
+) -> Optional[Dict[str, Any]]:
+    """Strategy switch for auto-routing.
+
+    AUTO_ROUTE_STRATEGY=llm|text (default llm). Falls back to text if LLM returns None.
+    """
+    strategy = AUTO_ROUTE_STRATEGY
+    if strategy == "llm":
+        picked = await maybe_execute_best_tool_by_llm(user_text, context, state)
+        if picked is not None:
+            return picked
+        # Fallback to text if no LLM pick
+        return await maybe_execute_best_tool_by_description(user_text, context, state)
+    # text strategy
+    return await maybe_execute_best_tool_by_description(user_text, context, state)
