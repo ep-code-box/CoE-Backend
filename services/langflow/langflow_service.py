@@ -6,8 +6,53 @@ LangFlow 실행 서비스
 import time
 from typing import Dict, Any, Optional
 from core.schemas import ExecuteFlowResponse
-# from langflow.load import run_flow_from_json # 예상되는 langflow 임포트
-from langflow.processing.process import process_graph_cached
+
+# LangFlow 실행 함수 호환 계층
+# 다양한 LangFlow 버전에서 이름/경로가 바뀌어 import 에러가 날 수 있으므로
+# 지연 임포트 + 다중 후보를 시도하고, 전부 실패하면 우아하게 에러를 반환합니다.
+def _resolve_langflow_runner():
+    try:
+        # 구버전/일부 배포에서 제공
+        from langflow.processing.process import process_graph_cached  # type: ignore
+
+        def _runner(flow_data, inputs):
+            return process_graph_cached(data_graph=flow_data, inputs=inputs or {})
+
+        return _runner
+    except Exception:
+        pass
+
+    try:
+        # 비교적 최신 API에서 자주 보이는 진입점
+        from langflow.load import run_flow_from_json  # type: ignore
+
+        def _runner(flow_data, inputs):
+            # 다양한 시그니처를 관대하게 시도
+            try:
+                return run_flow_from_json(flow=flow_data, inputs=inputs or {}, tweaks=None)  # type: ignore
+            except TypeError:
+                return run_flow_from_json(flow=flow_data, inputs=inputs or {})  # type: ignore
+
+        return _runner
+    except Exception:
+        pass
+
+    try:
+        # 또 다른 위치 시도 (일부 분기)
+        from langflow.processing.process import run_flow_from_json  # type: ignore
+
+        def _runner(flow_data, inputs):
+            try:
+                return run_flow_from_json(flow=flow_data, inputs=inputs or {}, tweaks=None)  # type: ignore
+            except TypeError:
+                return run_flow_from_json(flow=flow_data, inputs=inputs or {})  # type: ignore
+
+        return _runner
+    except Exception:
+        pass
+
+    # 전부 실패하면 None
+    return None
 
 class LangFlowExecutionService:
     """LangFlow 실행을 담당하는 서비스 클래스 (라이브러리 기반)"""
@@ -40,12 +85,17 @@ class LangFlowExecutionService:
             inputs = {}
 
         try:
-            # langflow 라이브러리를 사용하여 그래프 데이터 처리
-            # 실제 라이브러리 함수는 `process_graph_cached` 또는 유사한 형태일 수 있습니다.
-            result_data = process_graph_cached(
-                data_graph=flow_data,
-                inputs=inputs
-            )
+            # 호환 가능한 LangFlow 러너 확인
+            runner = _resolve_langflow_runner()
+            if runner is None:
+                raise ImportError(
+                    "Compatible LangFlow entrypoint not found. "
+                    "Tried: processing.process.process_graph_cached, load.run_flow_from_json. "
+                    "Please pin a compatible 'langflow' version or update the integration."
+                )
+
+            # langflow 러너 실행
+            result_data = runner(flow_data, inputs)
             
             # 실행 결과에서 실제 output 추출
             # LangFlow의 결과 구조에 따라 파싱 방식이 달라질 수 있습니다.
