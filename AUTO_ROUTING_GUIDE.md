@@ -1,0 +1,73 @@
+**Purpose**
+- Capture the current auto‑routing design so future edits keep natural outputs and the LLM‑first philosophy for tool arguments.
+- Scope: `CoE-Backend` (chat entrypoints, agent nodes, tool dispatcher, tools, LangFlow execution).
+
+**High‑Level Flow**
+- Client hits `POST /v1/chat/completions` → `api/chat_api.py` builds `AgentState` and calls agent.
+- Agent node `core/agent_nodes.py::tool_dispatcher_node` tries auto‑routing first, then falls back to normal tool calling.
+- Auto‑routing core lives in `services/tool_dispatcher.py`:
+  - Description/text strategy picks a candidate (Python Tool or LangFlow).
+  - LLM strategy: model sees candidates and returns one pick as JSON.
+  - If Python Tool is picked, the LLM generates arguments strictly from the tool JSON schema.
+  - If LangFlow is picked, the flow runs via `services/langflow/langflow_service.py` and its output is parsed into clean text.
+
+**Design Principles**
+- LLM‑first arguments: Do NOT regex‑parse user text for tool args. Let the LLM infer arguments from the tool’s JSON schema.
+- Natural output: Never return raw dumps to end users. Show the essential human‑readable message only.
+- Separation of concerns: Tools compute; dispatchers orchestrate; formatters shape the final message.
+- Reversible routing: `AUTO_ROUTE_STRATEGY` controls whether auto‑routing is used (see Configuration).
+
+**Key Modules**
+- `services/tool_dispatcher.py`
+  - `_format_flow_outputs_for_chat(outputs)`: extracts a single natural message from LangFlow results (no raw).
+  - `_format_tool_result_for_chat(result)`: reads `{"messages":[{"role":"assistant","content":"..."}]}` and returns content.
+  - `_llm_generate_tool_arguments(schema, user_text)`: asks the LLM to produce a strict JSON arguments object from the tool’s JSON schema. No regex.
+  - `maybe_execute_best_tool_by_description(...)` and `maybe_execute_best_tool_by_llm(...)`: choose and execute one candidate; always format via the helpers above.
+- `services/langflow/langflow_service.py`
+  - Executes LangFlow graphs across versions, normalizes outputs, and returns `ExecuteFlowResponse`.
+  - Avoids exposing `raw` to end users; dispatcher formats final text.
+- `core/agent_nodes.py::tool_dispatcher_node`
+  - Tries auto‑routing first; if not decisive, falls back to standard tool calling with the model.
+
+**Configuration**
+- `AUTO_ROUTE_STRATEGY`: `llm` (default) | `text` | `off`
+  - `llm`: LLM picks a tool/flow; if none, fall back to text strategy.
+  - `text`: keyword heuristic only; still formats outputs naturally.
+  - `off`: skip proactive auto‑routing; rely on the model’s own tool_calls.
+- `AUTO_ROUTE_MODEL`: model used for LLM routing and argument generation (default `gpt-4o-mini`).
+
+**Group Filtering (optional)**
+- Request can include `group_name` (already flows through to `AgentState`).
+- Python tools: `get_available_tools_for_context(context, group_name)` filters by an optional `allowed_groups: List[str]` exported by each `*_map.py`. If `allowed_groups` is absent, the tool is visible to all groups.
+- LangFlow flows: `_flow_allowed_in_context` accepts `group_name` and also permits a mapping row where `context` is `"{context}:{group_name}"` (no DB migration needed). To restrict a flow to a group, add a row in `langflow_tool_mappings` with a composite context like `aider:dev-team`.
+
+**Tool Contract (Python)**
+- Location: `tools/*_tool.py` and `*_map.py` (schema registration).
+- Schema: export `available_tools: List[Dict]` with `{"type":"function","function":{"name","description","parameters"}}`.
+- Functions: export `tool_functions: Dict[str, callable]` and an async `run(tool_input, state)`.
+- Return shape: `{"messages":[{"role":"assistant","content":"..."}]}` to let dispatcher surface content naturally.
+- Do not parse the user’s free text inside the tool; assume LLM supplies arguments.
+
+**Output Rules**
+- Do NOT prefix with status banners (e.g., "✅ 자동 라우팅...").
+- Success: return only the natural language content string.
+- Error: concise sentence (e.g., "도구 실행 중 오류가 발생했습니다: <detail>").
+- LangFlow: `_format_flow_outputs_for_chat` ensures a single, readable sentence.
+
+**Anti‑Patterns (Avoid)**
+- Regex or ad‑hoc parsing in dispatcher or tools for argument extraction.
+- Returning raw dictionaries or verbose debug blobs to users.
+- Mixing routing banners with user‑visible responses.
+
+**When Extending**
+- New tool: define a clear JSON schema with required fields; keep `run` pure; return messages shape.
+- New LangFlow flow: ensure descriptions are meaningful for candidate selection; rely on dispatcher formatting.
+- Changing models: if argument inference becomes flaky, consider upgrading `AUTO_ROUTE_MODEL` or tightening the system prompt in `_llm_generate_tool_arguments`.
+
+**Quick Tests**
+- LangFlow path: ask a flow‑intent query → response should be a clean sentence (no raw).
+- Python tool path: issue a query that implies a tool with parameters → the LLM should pick it and fill arguments; response is a clean sentence.
+
+**Troubleshooting**
+- If arguments are missing: inspect LLM routing logs and the tool schema; the LLM might need a stricter description/parameters.
+- If raw leaks: verify changes still route final text through `_format_flow_outputs_for_chat` or `_format_tool_result_for_chat`.

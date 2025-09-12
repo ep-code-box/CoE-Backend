@@ -111,6 +111,23 @@
 - 추가: 에이전트 도구(`list_langflows`, `execute_langflow`)를 통해 명시적으로 Flow를 조회/실행합니다.
 - 정정: Flow 등록 엔드포인트는 `POST /flows/`이며, 실행 엔드포인트는 `POST /flows/run/{endpoint}`입니다.
 
+### 9.1 자동 라우팅 및 출력 정리(추가)
+
+- 자동 라우팅(선제 실행)은 `services/tool_dispatcher.py`에 구현되어 있습니다.
+  - Python 도구/Flow 후보를 컨텍스트 기준으로 수집하고, LLM/텍스트 전략으로 하나를 선택합니다.
+  - Python 도구가 선택된 경우, 도구 JSON 스키마를 LLM에 제시하여 arguments(JSON)만 생성하도록 합니다(정규식 금지).
+  - LangFlow가 선택된 경우, 내부 실행 후 최종 텍스트만 추출해 반환합니다(raw 노출 금지).
+- 사용자 출력은 자연어 문장만 반환하도록 정리되었습니다(상태 배너/JSON 덤프 제거).
+- 구성 변수:
+  - `AUTO_ROUTE_STRATEGY=llm|text|off`, `AUTO_ROUTE_MODEL=gpt-4o-mini`(기본)
+
+### 9.2 group_name 기반 필터링(추가)
+
+- 요청의 `group_name`이 있으면 더 좁은 후보군만 노출할 수 있습니다.
+  - Python 도구: 각 `*_map.py`에서 선택적으로 `allowed_groups: List[str]`를 선언하면 해당 그룹에만 노출됩니다.
+  - LangFlow: `langflow_tool_mappings.context`에 `컨텍스트:그룹`(예: `aider:dev-team`) 값을 추가하면 해당 그룹에서만 노출됩니다(스키마 변경 없음).
+- 자세한 원칙과 사용법은 `CoE-Backend/AUTO_ROUTING_GUIDE.md` 참고.
+
 ## 10. 빠른 실행 예시
 
 - Flow 등록
