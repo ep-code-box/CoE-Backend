@@ -5,6 +5,7 @@ LangFlow 실행 서비스
 
 import time
 import inspect
+import json as _json
 from typing import Dict, Any, Optional, List
 from core.schemas import ExecuteFlowResponse
 
@@ -196,6 +197,37 @@ class LangFlowExecutionService:
                             data_block["sourceHandle"] = {"id": src_h if isinstance(src_h, str) else src_h.get("id") if isinstance(src_h, dict) else src_h}
                         if tgt_h is not None and not isinstance(data_block.get("targetHandle"), dict):
                             data_block["targetHandle"] = {"id": tgt_h if isinstance(tgt_h, str) else tgt_h.get("id") if isinstance(tgt_h, dict) else tgt_h}
+
+                        # Some exports embed JSON into the id string like '{…"dataType":"X"…}' possibly with custom quotes
+                        def _inflate_handle(h: Any) -> Dict[str, Any]:
+                            if isinstance(h, dict):
+                                # If id contains an embedded JSON, try to parse and merge
+                                _id = h.get("id")
+                                if isinstance(_id, str) and ("dataType" in _id or _id.strip().startswith("{")):
+                                    try:
+                                        patched = _id.replace("œ", '"')
+                                        parsed = _json.loads(patched)
+                                        if isinstance(parsed, dict):
+                                            # Merge parsed fields; keep original id if present
+                                            merged = {**h, **parsed}
+                                            # Ensure id is a simple string
+                                            if not isinstance(merged.get("id"), (str, bytes)):
+                                                merged["id"] = str(merged.get("id", ""))
+                                            return merged
+                                    except Exception:
+                                        pass
+                                # Ensure required fields exist
+                                if "dataType" not in h:
+                                    h["dataType"] = "Any"
+                                return h
+                            # If simple string, wrap
+                            return {"id": str(h), "dataType": "Any"}
+
+                        if isinstance(data_block.get("sourceHandle"), (dict, str)):
+                            data_block["sourceHandle"] = _inflate_handle(data_block.get("sourceHandle"))
+                        if isinstance(data_block.get("targetHandle"), (dict, str)):
+                            data_block["targetHandle"] = _inflate_handle(data_block.get("targetHandle"))
+
                         ne["data"] = data_block
                         normalized.append(ne)
                     if edges and normalized:
