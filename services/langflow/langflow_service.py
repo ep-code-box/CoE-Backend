@@ -302,6 +302,12 @@ class LangFlowExecutionService:
                 primary = _find_text(result_data)
                 if primary:
                     outputs = {"text": primary}
+            # As a final fallback, serialize the entire result for visibility
+            if not outputs or (isinstance(outputs, dict) and not outputs):
+                try:
+                    outputs = {"raw": _json.dumps(result_data, ensure_ascii=False, default=str)}
+                except Exception:
+                    outputs = {"raw": str(result_data)}
 
 
             return ExecuteFlowResponse(
