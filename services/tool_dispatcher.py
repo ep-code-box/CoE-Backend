@@ -26,6 +26,81 @@ AUTO_ROUTE_MODEL = os.getenv("AUTO_ROUTE_MODEL", "gpt-4o-mini")
 AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
 AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
 
+def _extract_primary_text(obj: Any) -> Optional[str]:
+    """Best-effort extraction of a human-friendly text from LangFlow-like outputs.
+
+    Tries common keys and nested shapes (e.g., outputs.message.message, artifacts.message, text, content).
+    Avoids returning large 'raw' blobs.
+    """
+    # Fast path: direct string
+    if isinstance(obj, str):
+        s = obj.strip()
+        return s if s else None
+
+    # Dict path: prefer specific keys
+    if isinstance(obj, dict):
+        # Avoid raw
+        for k in ("message", "text", "output", "result", "content"):
+            if k in obj and k != "raw":
+                v = obj.get(k)
+                # message may itself be a dict: {"message": "...", "type": "text"}
+                if isinstance(v, dict):
+                    inner = _extract_primary_text(v)
+                    if inner:
+                        return inner
+                elif isinstance(v, str):
+                    s = v.strip()
+                    if s:
+                        return s
+
+        # artifacts often carries a flat message
+        artifacts = obj.get("artifacts")
+        if isinstance(artifacts, dict):
+            msg = artifacts.get("message")
+            if isinstance(msg, str) and msg.strip():
+                return msg.strip()
+            inner = _extract_primary_text(artifacts)
+            if inner:
+                return inner
+
+        # outputs nesting
+        outputs = obj.get("outputs")
+        if outputs is not None:
+            inner = _extract_primary_text(outputs)
+            if inner:
+                return inner
+
+        # messages list with dicts
+        messages = obj.get("messages")
+        if isinstance(messages, list):
+            inner = _extract_primary_text(messages)
+            if inner:
+                return inner
+
+    # List path: scan items
+    if isinstance(obj, list):
+        for it in obj:
+            inner = _extract_primary_text(it)
+            if inner:
+                return inner
+
+    return None
+
+def _format_flow_outputs_for_chat(outputs: Any) -> str:
+    """Format LangFlow execution outputs as a clean chat message.
+
+    Prefers the primary user-facing text. Falls back to compact JSON.
+    """
+    try:
+        primary = _extract_primary_text(outputs)
+        if primary:
+            return primary
+        # fallback to compact JSON (not repr)
+        import json as _json
+        return _json.dumps(outputs, ensure_ascii=False, default=str)
+    except Exception:
+        return str(outputs)
+
 async def dispatch_and_execute(tool_name: str, tool_input: Optional[Dict[str, Any]], state: "AgentState") -> Optional[Any]:
     """
     주어진 tool_name에 따라 적절한 도구를 찾아 실행합니다.
@@ -425,13 +500,19 @@ async def maybe_execute_best_tool_by_description(
         name, fn = payload
         try:
             result = await fn(None, state)
+            # Pretty-print dict-like results; otherwise str()
+            try:
+                import json as _json
+                formatted = _json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result
+            except Exception:
+                formatted = str(result)
             content = (
-                f"✅ 자동 라우팅: Tool '{name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
-                f"결과:\n{result}"
+                f"✅ 자동 라우팅(의도분석): Tool '{name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
+                f"결과:\n{formatted}"
             )
         except Exception as e:
             content = (
-                f"❌ 자동 라우팅 실패: Tool '{name}' 실행 중 오류\n\n"
+                f"❌ 자동 라우팅(의도분석) 실패: Tool '{name}' 실행 중 오류\n\n"
                 f"오류: {e}"
             )
         return {"role": "assistant", "content": content}
@@ -454,15 +535,15 @@ async def maybe_execute_best_tool_by_description(
     if exec_result.success:
         outputs = exec_result.outputs or {}
         content = (
-            f"✅ 자동 라우팅: LangFlow '{flow.name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
-            f"출력:\n{outputs}"
+            f"✅ 자동 라우팅(의도분석): LangFlow '{flow.name}' 실행됨 (키워드: '{matched_kw}', 점수: {score})\n\n"
+            f"출력:\n{_format_flow_outputs_for_chat(outputs)}"
         )
     else:
         content = (
-            f"❌ 자동 라우팅 실패: LangFlow '{flow.name}' 실행 중 오류\n\n"
+            f"❌ 자동 라우팅(의도분석) 실패: LangFlow '{flow.name}' 실행 중 오류\n\n"
             f"오류: {exec_result.error}"
         )
-    return {"role": "assistant", "content": content}
+        return {"role": "assistant", "content": content}
 
 
 async def maybe_execute_best_tool_by_llm(
@@ -583,8 +664,13 @@ async def maybe_execute_best_tool_by_llm(
                 return None
             try:
                 result = await fn(None, state)
+                try:
+                    import json as _json
+                    formatted = _json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result
+                except Exception:
+                    formatted = str(result)
                 msg = (
-                    f"✅ 자동 라우팅(의도분석): Tool '{pname}' 실행 완료\n\n결과:\n{result}"
+                    f"✅ 자동 라우팅(의도분석): Tool '{pname}' 실행 완료\n\n결과:\n{formatted}"
                 )
             except Exception as e:
                 msg = (
@@ -603,7 +689,7 @@ async def maybe_execute_best_tool_by_llm(
             if exec_result.success:
                 outputs = exec_result.outputs or {}
                 msg = (
-                    f"✅ 자동 라우팅(의도분석): LangFlow '{pname}' 실행 완료\n\n출력:\n{outputs}"
+                    f"✅ 자동 라우팅(의도분석): LangFlow '{pname}' 실행 완료\n\n출력:\n{_format_flow_outputs_for_chat(outputs)}"
                 )
             else:
                 msg = (
