@@ -5,11 +5,14 @@ import os
 import sys
 import importlib.util
 from typing import Dict, Any, Optional, List, Tuple, Callable
+import re
 import logging
 import httpx
 
 from sqlalchemy.orm import Session
 from core.database import LangFlow, LangflowToolMapping, SessionLocal
+from services.db_langflow_service import LangFlowService
+from services.langflow.langflow_service import langflow_service
 
 logger = logging.getLogger(__name__)
 
@@ -222,3 +225,207 @@ async def run_langflow_tool(langflow: LangFlow, tool_input: Optional[Dict[str, A
     except Exception as e:
         logger.error(f"Failed to execute LangFlow '{langflow.name}': {e}", exc_info=True)
         return {"error": f"An unexpected error occurred while running the LangFlow tool: {str(e)}"}
+
+
+# --- Description-driven auto routing for LangFlow ---
+
+def _normalize_text(s: str) -> str:
+    return s.strip()
+
+
+_KO_STOPWORDS = {
+    "그리고", "그러면", "그러나", "만", "만에", "만은", "경우", "단어", "단어가",
+    "포함", "포함된", "수행", "하면", "하는", "만", "답변", "합니다", "하세요",
+    "경우에", "만", "그", "이", "저", "것", "등", "또는", "또", "때문에"
+}
+
+_EN_STOPWORDS = {
+    "the", "and", "or", "if", "when", "then", "only", "case", "word", "include",
+    "includes", "included", "perform", "do", "answer"
+}
+
+
+def _extract_keywords_from_description(desc: Optional[str]) -> List[str]:
+    """Extract meaningful tokens or phrases from description.
+
+    Strategy:
+    1) Prefer quoted phrases ("...").
+    2) If none, fall back to content words (Korean/English) of reasonable length, minus stopwords.
+    """
+    if not desc:
+        return []
+
+    # 1) quoted phrases first
+    patterns = [r'"([^"]+)"', r"'([^']+)'", r'“([^”]+)”', r'‘([^’]+)’']
+    quoted: List[str] = []
+    for pat in patterns:
+        quoted.extend(re.findall(pat, desc))
+    quoted = [_normalize_text(q) for q in quoted if _normalize_text(q)]
+    if quoted:
+        # dedupe preserve order
+        seen = set()
+        out: List[str] = []
+        for q in quoted:
+            if q not in seen:
+                seen.add(q)
+                out.append(q)
+        return out
+
+    # 2) fallback: tokenize description to keywords
+    # Split by non-word but keep Korean chars
+    tokens_raw = re.split(r"[^0-9A-Za-z가-힣_]+", desc)
+    tokens: List[str] = []
+    for t in tokens_raw:
+        t = t.strip()
+        if not t:
+            continue
+        low = t.lower()
+        # filter short/common tokens
+        is_korean = bool(re.search(r"[가-힣]", t))
+        if is_korean:
+            if len(t) < 2 or t in _KO_STOPWORDS:
+                continue
+        else:
+            if len(low) < 3 or low in _EN_STOPWORDS:
+                continue
+        tokens.append(t)
+
+    # dedupe while preserving order
+    seen = set()
+    result = []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            result.append(t)
+    return result
+
+
+def _flow_allowed_in_context(db: Session, flow: LangFlow, context: Optional[str]) -> bool:
+    if not context:
+        return True
+    allowed = db.query(LangflowToolMapping).filter(
+        LangflowToolMapping.flow_id == flow.flow_id,
+        LangflowToolMapping.context == context,
+    ).first()
+    return allowed is not None
+
+
+async def maybe_execute_flow_by_description(user_text: str, context: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    If any active flow's description contains quoted keywords that appear in user_text,
+    execute the best-matching flow and return an assistant message dict. Else None.
+    """
+    if not user_text:
+        return None
+
+    db: Session = SessionLocal()
+    try:
+        flows = LangFlowService.get_all_flows(db)
+        candidates: List[Tuple[int, LangFlow, str]] = []
+        utext = user_text or ""
+        for f in flows:
+            if not getattr(f, "is_active", True):
+                continue
+            if not _flow_allowed_in_context(db, f, context):
+                continue
+            best_kw = None
+            best_score = 0
+            for kw in _extract_keywords_from_description(f.description):
+                if not kw:
+                    continue
+                if kw in utext:
+                    # weight by length to favor specific phrases
+                    score = max(1, len(kw))
+                    if score > best_score:
+                        best_kw = kw
+                        best_score = score
+            if best_kw:
+                candidates.append((best_score, f, best_kw))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        _, sel, matched_kw = candidates[0]
+
+        flow_data = LangFlowService.get_flow_data_as_dict(sel)
+        inputs = {"input_value": user_text, "message": user_text}
+        exec_result = await langflow_service.execute_flow(flow_data, inputs)
+
+        if exec_result.success:
+            outputs = exec_result.outputs or {}
+            content = (
+                f"✅ 자동 라우팅: LangFlow '{sel.name}' 실행됨 (키워드: '{matched_kw}')\n\n"
+                f"출력:\n{outputs}"
+            )
+        else:
+            content = (
+                f"❌ 자동 라우팅 실패: LangFlow '{sel.name}' 실행 중 오류\n\n"
+                f"오류: {exec_result.error}"
+            )
+
+        return {"role": "assistant", "content": content}
+    finally:
+        db.close()
+
+
+async def maybe_execute_python_tool_by_description(
+    user_text: str, context: Optional[str], state: "AgentState"
+) -> Optional[Dict[str, Any]]:
+    """Description-based auto selection among Python tools available in the context.
+
+    Uses the same keyword extraction and scoring rule as flows. If matched, executes
+    the tool function and returns an assistant message dict. Otherwise returns None.
+    """
+    if not user_text:
+        return None
+
+    ctx = context or ""
+    schemas, functions = get_available_tools_for_context(ctx)
+    if not schemas:
+        return None
+
+    candidates: List[Tuple[int, Dict[str, Any], str]] = []  # (score, schema, keyword)
+    for sch in schemas:
+        try:
+            func = sch.get("function", {}) if isinstance(sch, dict) else {}
+            name = func.get("name")
+            desc = func.get("description") or sch.get("description")
+            if not name or not desc:
+                continue
+            best_kw = None
+            best_score = 0
+            for kw in _extract_keywords_from_description(desc):
+                if kw and kw in user_text:
+                    score = max(1, len(kw))
+                    if score > best_score:
+                        best_kw = kw
+                        best_score = score
+            if best_kw:
+                candidates.append((best_score, sch, best_kw))
+        except Exception:
+            continue
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    _, sel_schema, matched_kw = candidates[0]
+    sel_name = sel_schema["function"]["name"]
+    tool_fn = functions.get(sel_name)
+    if not tool_fn:
+        return None
+
+    try:
+        result = await tool_fn(None, state)  # let tool parse from state if needed
+        content = (
+            f"✅ 자동 라우팅: Tool '{sel_name}' 실행됨 (키워드: '{matched_kw}')\n\n"
+            f"결과:\n{result}"
+        )
+    except Exception as e:
+        content = (
+            f"❌ 자동 라우팅 실패: Tool '{sel_name}' 실행 중 오류\n\n"
+            f"오류: {e}"
+        )
+
+    return {"role": "assistant", "content": content}

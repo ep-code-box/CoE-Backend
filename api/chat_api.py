@@ -217,6 +217,7 @@ async def handle_agent_request(
     )
 
     try:
+        # --- Fallback to agent flow (tool dispatcher handles auto-routing) ---
         logger.info(
             "Invoking agent | model='%s' context='%s' history=%d tools=%d",
             agent_state["model_id"],

@@ -1,6 +1,6 @@
 import os
 from typing import Dict, Optional
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from core.models import model_registry, ModelInfo # ModelRegistry를 가져옵니다.
@@ -66,14 +66,33 @@ def get_model_info(model_id: str) -> Optional[ModelInfo]:
 # 기본 모델의 프로바이더에 해당하는 클라이언트를 기본 클라이언트로 설정합니다.
 client = get_client_for_model(default_model.model_id)
 
-# 1) 직접 사용을 위한 클라이언트 (예: router_node)
-# 위에서 생성한 `client` 인스턴스를 그대로 사용합니다.
+# 1) 직접 사용을 위한 클라이언트 (예: router_node) → 위에서 생성한 `client` 인스턴스를 그대로 사용
 
 # 2) LangChain 연동을 위한 ChatOpenAI Client 설정 (LCEL 체인용)
+#    LangChain의 ChatOpenAI는 OpenAI SDK v1 리소스(client.chat.completions) 또는
+#    api_key/base_url 설정로 동작합니다. 루트 AsyncOpenAI를 넘기면 `create`가 없어 오류가 납니다.
+
+# 기본 모델 프로바이더에 맞춰 ChatOpenAI에 전달할 base_url/api_key 계산
+provider = default_model.provider
+if provider == "sktax":
+    _lc_base_url = default_model.api_base
+    _lc_api_key = os.getenv("SKAX_API_KEY")
+elif provider == "openai":
+    _lc_base_url = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+    _lc_api_key = os.getenv("OPENAI_API_KEY")
+elif provider == "local":
+    _lc_base_url = default_model.api_base
+    _lc_api_key = "dummy_key"
+else:
+    # 기타 프로바이더도 OpenAI 호환 게이트웨이를 사용하는 경우에 한해 그대로 시도
+    _lc_base_url = getattr(default_model, "api_base", None) or os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+    _lc_api_key = os.getenv("OPENAI_API_KEY")
+
 langchain_client = ChatOpenAI(
-    model=default_model.model_id, # ModelRegistry에서 가져온 기본 모델 ID를 사용합니다.
+    model=default_model.model_id,  # ModelRegistry에서 가져온 기본 모델 ID 사용
     streaming=True,
-    client=client,  # 기본 클라이언트 인스턴스를 전달
+    api_key=_lc_api_key,
+    base_url=_lc_base_url,
 )
 
 print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.")

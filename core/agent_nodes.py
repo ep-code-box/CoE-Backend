@@ -44,6 +44,27 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     # Pydantic 모델을 dict로 변환
     combined_tool_schemas = [t if isinstance(t, dict) else t.model_dump(exclude_none=True) for t in resolved_tools]
 
+    # 자동 라우팅(설명 기반): 최근 사용자 메시지에서 키워드 매칭 시 플로우 실행
+    try:
+        last_user = None
+        for msg in reversed(history):
+            if (isinstance(msg, dict) and msg.get("role") == "user") or getattr(msg, "role", None) == "user":
+                last_user = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+                break
+        if last_user:
+            # 1) Try Python tools first (description-based)
+            auto_msg = await tool_dispatcher.maybe_execute_python_tool_by_description(last_user, context, state)
+            if auto_msg is not None:
+                history.append(auto_msg)
+                return {"history": history}
+            # 2) Fall back to LangFlow description-based routing
+            auto_msg = await tool_dispatcher.maybe_execute_flow_by_description(last_user, context)
+            if auto_msg is not None:
+                history.append(auto_msg)
+                return {"history": history}
+    except Exception as e:
+        logger.warning(f"Auto-routing check failed: {e}")
+
     # LLM 클라이언트 선택
     llm_client = get_client_for_model(model_id)
 
