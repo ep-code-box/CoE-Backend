@@ -5,7 +5,7 @@ LangFlow 실행 서비스
 
 import time
 import inspect
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from core.schemas import ExecuteFlowResponse
 
 # LangFlow 실행 함수 호환 계층
@@ -177,6 +177,36 @@ class LangFlowExecutionService:
             inputs = {}
 
         try:
+            # Normalize common schema differences between LangFlow versions
+            def _normalize_flow_payload(payload: Dict[str, Any]) -> None:
+                try:
+                    dg = payload.get("data") or {}
+                    edges: List[Dict[str, Any]] = dg.get("edges") or []
+                    normalized: List[Dict[str, Any]] = []
+                    for e in edges:
+                        if not isinstance(e, dict):
+                            normalized.append(e)
+                            continue
+                        ne = dict(e)
+                        data_block = ne.get("data") if isinstance(ne.get("data"), dict) else {}
+                        # Move flat handles into nested data.sourceHandle/targetHandle with .id
+                        src_h = ne.pop("sourceHandle", None)
+                        tgt_h = ne.pop("targetHandle", None)
+                        if src_h is not None and not isinstance(data_block.get("sourceHandle"), dict):
+                            data_block["sourceHandle"] = {"id": src_h if isinstance(src_h, str) else src_h.get("id") if isinstance(src_h, dict) else src_h}
+                        if tgt_h is not None and not isinstance(data_block.get("targetHandle"), dict):
+                            data_block["targetHandle"] = {"id": tgt_h if isinstance(tgt_h, str) else tgt_h.get("id") if isinstance(tgt_h, dict) else tgt_h}
+                        ne["data"] = data_block
+                        normalized.append(ne)
+                    if edges and normalized:
+                        dg["edges"] = normalized
+                        payload["data"] = dg
+                except Exception:
+                    # best-effort normalization only
+                    pass
+
+            _normalize_flow_payload(flow_data)
+
             # 호환 가능한 LangFlow 러너 확인
             runner = _resolve_langflow_runner()
             if runner is None:
