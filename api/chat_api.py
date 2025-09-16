@@ -341,7 +341,9 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
 # -----------------------------
 # (옵션) RAG 연계
 # -----------------------------
-RAG_SERVICE_URL = "http://coe-ragpipeline:8001/api/v1/search"
+import os as _os
+_RAG_BASE = _os.getenv("RAG_PIPELINE_URL", "http://ragpipeline:8001")
+RAG_SERVICE_URL = f"{_RAG_BASE}/api/v1/search"
 RAG_SCORE_THRESHOLD = 0.7
 
 
