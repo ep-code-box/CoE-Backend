@@ -25,6 +25,7 @@ AUTO_ROUTE_STRATEGY = os.getenv("AUTO_ROUTE_STRATEGY", "llm").lower()  # llm|tex
 AUTO_ROUTE_MODEL = os.getenv("AUTO_ROUTE_MODEL", "gpt-4o-mini")
 AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
 AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
+AUTO_ROUTE_LLM_FALLBACK = os.getenv("AUTO_ROUTE_LLM_FALLBACK", "true").lower() in {"1", "true", "yes", "on"}
 
 def _extract_text_from_raw_string(s: str) -> Optional[str]:
     """Heuristically extract a natural-language message from a raw LangFlow repr string.
@@ -808,7 +809,10 @@ async def maybe_execute_best_tool(
         picked = await maybe_execute_best_tool_by_llm(user_text, context, state)
         if picked is not None:
             return picked
-        # Fallback to text if no LLM pick
-        return await maybe_execute_best_tool_by_description(user_text, context, state)
+        # Optionally fall back to description-based routing
+        if AUTO_ROUTE_LLM_FALLBACK:
+            return await maybe_execute_best_tool_by_description(user_text, context, state)
+        logger.info("[AUTO-ROUTE] LLM-only mode; skipping text fallback.")
+        return None
     # text strategy
     return await maybe_execute_best_tool_by_description(user_text, context, state)
