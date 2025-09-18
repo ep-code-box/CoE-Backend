@@ -67,6 +67,7 @@ class AppFactory:
         redoc_url = "/redoc" if expose_docs else None
         # 운영 기본은 비공개. 필요 시 ENABLE_DOCS 로 명시적으로 노출.
         openapi_url = "/openapi.json" if expose_docs else None
+        root_path = os.getenv("ROOT_PATH", "")
 
         # FastAPI 앱 생성
         app = FastAPI(
@@ -95,6 +96,8 @@ class AppFactory:
             docs_url=docs_url,
             redoc_url=redoc_url,
             openapi_url=openapi_url,
+            root_path=root_path,
+            root_path_in_servers=True,
             lifespan=lifespan,
             swagger_ui_parameters={
                 "defaultModelsExpandDepth": 2,
