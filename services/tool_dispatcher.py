@@ -25,7 +25,7 @@ AUTO_ROUTE_STRATEGY = os.getenv("AUTO_ROUTE_STRATEGY", "llm").lower()  # llm|tex
 AUTO_ROUTE_MODEL = os.getenv("AUTO_ROUTE_MODEL", "gpt-4o-mini")
 AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
 AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
-AUTO_ROUTE_LLM_FALLBACK = os.getenv("AUTO_ROUTE_LLM_FALLBACK", "true").lower() in {"1", "true", "yes", "on"}
+AUTO_ROUTE_LLM_FALLBACK = os.getenv("AUTO_ROUTE_LLM_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
 
 def _extract_text_from_raw_string(s: str) -> Optional[str]:
     """Heuristically extract a natural-language message from a raw LangFlow repr string.

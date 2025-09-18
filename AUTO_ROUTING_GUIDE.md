@@ -34,7 +34,7 @@
   - `llm`: LLM picks a tool/flow. If none, optionally fall back to text strategy depending on `AUTO_ROUTE_LLM_FALLBACK`.
   - `text`: keyword heuristic only; still formats outputs naturally.
   - `off`: skip proactive auto‑routing; rely on the model’s own tool_calls.
-- `AUTO_ROUTE_LLM_FALLBACK`: `true` (default) | `false`
+- `AUTO_ROUTE_LLM_FALLBACK`: `false` (default) | `true`
   - When `AUTO_ROUTE_STRATEGY=llm` and this is `false`, the dispatcher will not attempt keyword/text fallback. This enforces strict “LLM‑only” routing.
 - `AUTO_ROUTE_MODEL`: model used for LLM routing and argument generation (default `gpt-4o-mini`).
 
