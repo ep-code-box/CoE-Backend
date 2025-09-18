@@ -60,12 +60,13 @@ class AppFactory:
         
         # 환경에 따른 문서 노출 설정
         app_env = os.getenv("APP_ENV", "").lower()
-        is_dev = app_env == "development"
+        docs_flag = os.getenv("ENABLE_DOCS", "").lower()
+        expose_docs = docs_flag in {"1", "true", "yes", "on"} or app_env in {"development", "local"}
 
-        docs_url = "/docs" if is_dev else None
-        redoc_url = "/redoc" if is_dev else None
-        # 필요 시 openapi_url도 비공개 가능. 기본은 유지.
-        openapi_url = "/openapi.json" if is_dev else None
+        docs_url = "/docs" if expose_docs else None
+        redoc_url = "/redoc" if expose_docs else None
+        # 운영 기본은 비공개. 필요 시 ENABLE_DOCS 로 명시적으로 노출.
+        openapi_url = "/openapi.json" if expose_docs else None
 
         # FastAPI 앱 생성
         app = FastAPI(
