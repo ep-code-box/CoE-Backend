@@ -5,7 +5,7 @@
 ## 핵심 개념
 
 - **중앙 디스패처 (Central Dispatcher)**: `services/tool_dispatcher.py`가 에이전트의 핵심 두뇌 역할을 합니다. 이 디스패처는 사용자 문의의 의도를 분석하여 가장 적합한 도구를 결정하고 실행까지 책임집니다.
-- **`context` 기반 도구 제공**: 특정 `context`(프론트엔드 환경)에서 사용 가능한 도구들의 목록을 LLM에게 제공하여, LLM이 이 중에서 최적의 도구를 선택하도록 합니다.
+- **`context` + `group_name` 기반 도구 제공**: 특정 `context`(프론트엔드 환경)와 선택적 `group_name` 조합에 맞는 도구만 LLM에게 노출합니다. 동일한 `context`에서 `group_name`이 지정되면 `(context, group)`에 정확히 매핑된 도구/플로우가 최우선이며, 없을 경우 공용(`group_name` 미설정) 도구가 후순위로 노출됩니다.
 - **도구 유형 및 실행 방식**:
   1.  **Python 도구**: 명확한 기능이 있는 정적(static) 도구입니다. LLM은 여러 Python 도구 중 가장 적합한 것의 **이름**을 선택하여 실행을 요청합니다.
   2.  **LangFlow 워크플로우**: 복잡한 작업을 처리하는 동적(dynamic) 워크플로우입니다. `execute_langflow` 도구를 사용하여 이름으로 특정 워크플로우를 실행합니다.
@@ -15,6 +15,8 @@
 ## 사용 가능한 도구 목록
 
 다음은 현재 시스템에서 사용 가능한 도구 목록입니다.
+
+> ℹ️ **그룹 기반 노출**: LangFlow 플로우는 `langflow_tool_mappings` 테이블의 `(context, group_name)` 매핑을 사용합니다. 동일한 컨텍스트에 대해 그룹 전용 행이 있으면 해당 그룹 세션에서 우선 선택되고, 공용(`group_name` NULL) 행은 fallback으로 남습니다. Python 도구는 각 맵의 `allowed_groups*` 메타데이터로 제한합니다.
 
 ### 1. RAG 기반 개발 가이드 추출 (`rag_guide_tool`)
 
@@ -30,6 +32,7 @@
 ### 2. LangFlow 관리 (`langflow_tool`)
 
 - **설명**: 저장된 LangFlow 워크플로우를 실행하거나 목록을 조회합니다.
+- **그룹 필터링**: LangFlow가 노출되려면 `langflow_tool_mappings`에 `(context, group_name)` 혹은 `(context, NULL)` 행이 존재해야 합니다. 특정 그룹만 볼 수 있도록 하려면 `group_name` 컬럼에 대상 그룹을 지정하세요.
 - **도구**:
     - `execute_langflow`: 이름으로 특정 LangFlow를 실행합니다.
         - **파라미터**: `flow_name` (string, 필수) - 실행할 LangFlow의 이름.
@@ -90,10 +93,11 @@
 
 **파일 필수 구성 요소:**
 
-1.  **`run(tool_input, state)` 함수**:
+ 1.  **`run(tool_input, state)` 함수**:
     *   도구의 실제 로직을 포함하는 **필수** 진입점 함수입니다.
     *   `tool_input` (dict): LLM이 생성한 인자들을 담고 있습니다.
     *   `state` (AgentState): 전체 대화 기록, 사용자 입력 등 에이전트의 현재 상태 정보가 담겨 있습니다.
+        - `state.get("group_name")`을 사용하면 현재 세션의 그룹을 확인할 수 있으며, 그룹별 행위가 필요한 경우 이 값을 참고합니다.
     *   반환값은 도구 실행 결과를 담은 딕셔너리여야 합니다. (예: `{"messages": [{"role": "assistant", "content": "결과"}]}`)
 
 2.  **`available_tools` 변수**:
@@ -163,7 +167,13 @@ tool_functions: Dict[str, callable] = {
     *   도구가 활성화될 프론트엔드 환경 목록을 리스트로 정의합니다. (예: `["aider", "openWebUi"]`)
     *   LLM은 현재 `context`에 맞는 도구들만 제공받게 됩니다.
 
-2.  **`endpoints` 변수** (선택 사항):
+2.  **그룹 제한 메타데이터 (선택)**:
+    *   모듈 단위로 `allowed_groups: List[str]`를 정의하면 해당 배열에 포함된 `group_name` 세션에서만 이 맵에 속한 도구들이 노출됩니다.
+    *   `allowed_groups_by_tool: Dict[str, List[str]]`를 정의하면 각 도구별로 세부 그룹 제한을 설정할 수 있습니다.
+    *   두 설정이 모두 없다면 도구는 공용(public)으로 간주되어 모든 그룹에 노출됩니다.
+    *   그룹이 지정된 도구는 `(context, group_name)`이 모두 일치할 때 최우선으로 선택되고, 동일 컨텍스트의 공용 도구는 후순위로 남습니다.
+
+3.  **`endpoints` 변수** (선택 사항):
     *   도구를 외부 API로 직접 노출하고 싶을 때 사용합니다.
     *   `{ "도구_이름": "/api/경로" }` 형식의 딕셔너리로 정의합니다.
 
@@ -174,6 +184,14 @@ tool_contexts = [
     "aider",
     "openWebUi"
 ]
+
+# 특정 그룹에게만 노출하고 싶다면 allowed_groups/allowed_groups_by_tool를 활용합니다.
+allowed_groups = ["coe-core-team"]
+
+# 도구별로 다른 그룹 제한을 주고 싶다면 아래 딕셔너리를 사용하세요.
+allowed_groups_by_tool = {
+    "greet_user_in_a_new_way": ["coe-core-team", "coe-infra"]
+}
 
 # 도구를 직접 호출할 수 있는 API 엔드포인트를 정의합니다.
 endpoints = {

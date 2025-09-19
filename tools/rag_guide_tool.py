@@ -240,7 +240,7 @@ available_tools: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "rag_guide_tool",
-            "description": "Git 레포지토리 분석을 시작하고, 분석 결과를 바탕으로 표준개발가이드, 공통코드화, 공통함수 가이드를 추출합니다. 또는 기존 analysis_id를 사용하여 가이드를 추출합니다. group_name을 지정하여 분석 결과를 그룹화할 수 있습니다.",
+            "description": "git주소나 analysis_id를 가 없다면 해당 툴을 사용하지 않습니다. git 주소가 있다면 Git 레포지토리 분석을 시작하고, 분석 결과를 바탕으로 표준개발가이드, 공통코드화, 공통함수 가이드를 추출합니다. 또는 기존 analysis_id를 사용하여 가이드를 추출합니다. group_name을 지정하여 분석 결과를 그룹화할 수 있습니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
