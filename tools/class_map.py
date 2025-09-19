@@ -1,4 +1,4 @@
-tool_contexts = ["aider", "continue.dev"]
+tool_contexts = []
 
 endpoints = {
     "class_call": "/tools/class-call",
