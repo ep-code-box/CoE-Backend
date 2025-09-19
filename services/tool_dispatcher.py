@@ -4,7 +4,7 @@ Front-end에서 요청된 도구를 찾아 실행하고, 그 결과를 반환하
 import os
 import sys
 import importlib.util
-from typing import Dict, Any, Optional, List, Tuple, Callable
+from typing import Dict, Any, Optional, List, Tuple, Callable, Set
 import re
 import logging
 import httpx
@@ -26,6 +26,7 @@ AUTO_ROUTE_MODEL = os.getenv("AUTO_ROUTE_MODEL", "gpt-4o-mini")
 AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
 AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
 AUTO_ROUTE_LLM_FALLBACK = os.getenv("AUTO_ROUTE_LLM_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
+ENABLE_GROUP_FILTERING = os.getenv("ENABLE_GROUP_FILTERING", "true").lower() in {"1", "true", "yes", "on"}
 
 def _extract_text_from_raw_string(s: str) -> Optional[str]:
     """Heuristically extract a natural-language message from a raw LangFlow repr string.
@@ -235,7 +236,8 @@ async def dispatch_and_execute(tool_name: str, tool_input: Optional[Dict[str, An
 
     # 2. LangFlow가 있는지 확인하고 실행 (엔드포인트/이름 + context 매핑 기준)
     ctx = state.get("context") if isinstance(state, dict) else None
-    langflow = find_langflow_tool(tool_name, ctx)
+    group_name = state.get("group_name") if isinstance(state, dict) else None
+    langflow = find_langflow_tool(tool_name, ctx, group_name)
     if langflow:
         logger.info(f"Found LangFlow '{tool_name}' (context='{ctx}'). Executing...")
         return await run_langflow_tool(langflow, tool_input, state)
@@ -281,49 +283,143 @@ def find_python_tool_path(tool_name: str) -> Optional[str]:
     
     return None
 
-def get_available_tools_for_context(context: str) -> Tuple[List[Dict[str, Any]], Dict[str, Callable]]:
-    """
-    주어진 컨텍스트(_map.py 기준)에 맞는, LLM이 사용할 수 있는 도구의 스키마와 함수를 반환합니다.
-    """
-    all_schemas = []
-    all_functions = {}
-    logger.info(f"Loading tools for context: '{context}'")
+def get_available_tools_for_context(
+    context: str,
+    group_name: Optional[str] = None,
+    enable_group_filtering: Optional[bool] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Callable]]:
+    """주어진 컨텍스트에 맞는 Python 도구 스키마와 실행 함수를 반환합니다."""
+
+    apply_filters = enable_group_filtering if enable_group_filtering is not None else ENABLE_GROUP_FILTERING
+    normalized_group = (group_name or "").strip().lower() or None
+
+    all_schemas: List[Dict[str, Any]] = []
+    all_functions: Dict[str, Callable] = {}
+    logger.info(
+        f"Loading tools for context='{context}' group='{normalized_group}' filter={apply_filters}"
+    )
 
     tools_dir = os.path.abspath(TOOLS_BASE_DIR)
     for root, _, files in os.walk(tools_dir):
         for filename in files:
-            if filename.endswith("_map.py"):
-                map_filepath = os.path.join(root, filename)
-                try:
-                    map_spec = importlib.util.spec_from_file_location("map_module", map_filepath)
-                    map_module = importlib.util.module_from_spec(map_spec)
-                    map_spec.loader.exec_module(map_module)
+            if not filename.endswith("_map.py"):
+                continue
 
-                    tool_contexts = getattr(map_module, 'tool_contexts', [])
+            map_filepath = os.path.join(root, filename)
+            try:
+                map_spec = importlib.util.spec_from_file_location("map_module", map_filepath)
+                map_module = importlib.util.module_from_spec(map_spec)
+                map_spec.loader.exec_module(map_module)
 
-                    if context in tool_contexts:
-                        tool_filepath = map_filepath.replace("_map.py", "_tool.py")
-                        if os.path.exists(tool_filepath):
-                            logger.info(f"Map file {map_filepath} matches context '{context}'. Loading tools from {tool_filepath}")
-                            
-                            tool_spec = importlib.util.spec_from_file_location("tool_module", tool_filepath)
-                            tool_module = importlib.util.module_from_spec(tool_spec)
-                            tool_spec.loader.exec_module(tool_module)
+                tool_contexts = getattr(map_module, "tool_contexts", [])
+                if context not in tool_contexts:
+                    continue
 
-                            if hasattr(tool_module, 'available_tools') and hasattr(tool_module, 'tool_functions'):
-                                all_schemas.extend(getattr(tool_module, 'available_tools'))
-                                all_functions.update(getattr(tool_module, 'tool_functions'))
-                        else:
-                            logger.warning(f"Map file {map_filepath} matched context, but tool file {tool_filepath} not found.")
+                module_allowed_groups = {
+                    g.strip().lower()
+                    for g in getattr(map_module, "allowed_groups", [])
+                    if isinstance(g, str) and g.strip()
+                }
+                raw_tool_group_map = getattr(map_module, "allowed_groups_by_tool", {}) or {}
+                tool_allowed_groups: Dict[str, Set[str]] = {}
+                for tool_name, groups in raw_tool_group_map.items():
+                    if not isinstance(groups, (list, tuple, set)):
+                        continue
+                    lowered = {
+                        str(item).strip().lower()
+                        for item in groups
+                        if isinstance(item, str) and str(item).strip()
+                    }
+                    if lowered:
+                        tool_allowed_groups[tool_name] = lowered
 
-                except Exception as e:
-                    logger.error(f"Error processing map file {map_filepath}: {e}")
+                if apply_filters:
+                    if normalized_group is None and module_allowed_groups:
+                        logger.debug(
+                            f"Skip map {map_filepath}: module-level groups defined but no group provided."
+                        )
+                        continue
+                    if (
+                        normalized_group is not None
+                        and module_allowed_groups
+                        and normalized_group not in module_allowed_groups
+                    ):
+                        logger.debug(
+                            f"Skip map {map_filepath}: group '{normalized_group}' not allowed at module level."
+                        )
+                        continue
 
-    # LangFlow 도구는 별도의 매핑 테이블로 컨텍스트 제한을 적용합니다 (실행 시 검사).
-    logger.info(f"Found {len(all_schemas)} tools available for context '{context}'.")
+                tool_filepath = map_filepath.replace("_map.py", "_tool.py")
+                if not os.path.exists(tool_filepath):
+                    logger.warning(
+                        f"Map file {map_filepath} matched context, but tool file {tool_filepath} not found."
+                    )
+                    continue
+
+                logger.info(
+                    f"Map file {map_filepath} matches context '{context}'. Loading tools from {tool_filepath}"
+                )
+
+                tool_spec = importlib.util.spec_from_file_location("tool_module", tool_filepath)
+                tool_module = importlib.util.module_from_spec(tool_spec)
+                tool_spec.loader.exec_module(tool_module)
+
+                if not (
+                    hasattr(tool_module, "available_tools")
+                    and hasattr(tool_module, "tool_functions")
+                ):
+                    continue
+
+                available = getattr(tool_module, "available_tools")
+                functions = getattr(tool_module, "tool_functions")
+
+                for schema in available:
+                    try:
+                        fn = schema.get("function", {}) if isinstance(schema, dict) else {}
+                        name = fn.get("name")
+                        if not name:
+                            continue
+
+                        def _is_tool_allowed() -> bool:
+                            if not apply_filters:
+                                return True
+                            allowed_for_tool = tool_allowed_groups.get(name)
+                            if normalized_group is None:
+                                if allowed_for_tool:
+                                    return False
+                                if module_allowed_groups:
+                                    return False
+                                return True
+                            # group provided
+                            if allowed_for_tool is not None:
+                                return normalized_group in allowed_for_tool
+                            if module_allowed_groups:
+                                return normalized_group in module_allowed_groups
+                            return True
+
+                        if not _is_tool_allowed():
+                            continue
+
+                        all_schemas.append(schema)
+                        if name in functions:
+                            all_functions[name] = functions[name]
+                    except Exception as e:
+                        logger.debug(f"Skip tool due to error while filtering: {e}")
+
+            except Exception as e:
+                logger.error(f"Error processing map file {map_filepath}: {e}")
+
+    logger.info(
+        f"Found {len(all_schemas)} tools available for context='{context}' group='{normalized_group}'."
+    )
     return all_schemas, all_functions
 
-def find_langflow_tool(tool_name: str, context: Optional[str]) -> Optional[LangFlow]:
+def find_langflow_tool(
+    tool_name: str,
+    context: Optional[str],
+    group_name: Optional[str] = None,
+    enable_group_filtering: Optional[bool] = None,
+) -> Optional[LangFlow]:
     """
     LangFlow를 이름(엔드포인트)으로 조회하고, context가 주어지면 매핑 테이블로 사용 가능 여부를 확인합니다.
     """
@@ -332,19 +428,22 @@ def find_langflow_tool(tool_name: str, context: Optional[str]) -> Optional[LangF
         lf = db.query(LangFlow).filter(LangFlow.name == tool_name, LangFlow.is_active == True).first()
         if not lf:
             return None
-        if context:
-            allowed = db.query(LangflowToolMapping).filter(
-                LangflowToolMapping.flow_id == lf.flow_id,
-                LangflowToolMapping.context == context
-            ).first()
-            if not allowed:
-                logger.info(
-                    "LangFlow '%s' not allowed for context '%s' (flow_id=%s)",
-                    tool_name,
-                    context,
-                    lf.flow_id,
-                )
-                return None
+        allowed, matched_group = _flow_allowed_in_context(
+            db,
+            lf,
+            context,
+            group_name,
+            enable_group_filtering,
+        )
+        if not allowed:
+            logger.info(
+                "LangFlow '%s' not allowed for context='%s' group='%s' (flow_id=%s)",
+                tool_name,
+                context,
+                group_name,
+                lf.flow_id,
+            )
+            return None
         return lf
     except Exception as e:
         logger.error(f"Error finding LangFlow '{tool_name}' in database: {e}", exc_info=True)
@@ -492,14 +591,47 @@ def _extract_keywords_from_description(desc: Optional[str]) -> List[str]:
     return result
 
 
-def _flow_allowed_in_context(db: Session, flow: LangFlow, context: Optional[str]) -> bool:
+def _flow_allowed_in_context(
+    db: Session,
+    flow: LangFlow,
+    context: Optional[str],
+    group_name: Optional[str],
+    enable_group_filtering: Optional[bool] = None,
+) -> Tuple[bool, bool]:
+    """Return (allowed, matched_group_specific)."""
+
     if not context:
-        return True
-    allowed = db.query(LangflowToolMapping).filter(
+        return True, False
+
+    apply_filters = enable_group_filtering if enable_group_filtering is not None else ENABLE_GROUP_FILTERING
+    normalized_group = (group_name or "").strip().lower() or None
+
+    mappings = db.query(LangflowToolMapping).filter(
         LangflowToolMapping.flow_id == flow.flow_id,
         LangflowToolMapping.context == context,
-    ).first()
-    return allowed is not None
+    ).all()
+
+    if not mappings:
+        return False, False
+
+    if not apply_filters:
+        return True, False
+
+    if normalized_group is not None:
+        for mapping in mappings:
+            group_val = (mapping.group_name or "").strip().lower() or None
+            if group_val is not None and group_val == normalized_group:
+                return True, True
+        for mapping in mappings:
+            if mapping.group_name is None:
+                return True, False
+        return False, False
+
+    # No group provided: only allow public mappings (group_name IS NULL)
+    for mapping in mappings:
+        if mapping.group_name is None:
+            return True, False
+    return False, False
 
 
 async def maybe_execute_best_tool_by_description(
@@ -514,10 +646,15 @@ async def maybe_execute_best_tool_by_description(
 
     ctx = context or ""
     utext = user_text or ""
+    group_name = None
+    if isinstance(state, dict):
+        group_name = state.get("group_name")
+
+    apply_filters = ENABLE_GROUP_FILTERING
 
     # 1) Evaluate Python tools in context
     py_candidates: List[Tuple[int, str, Callable, str]] = []  # (score, name, fn, matched_kw)
-    schemas, functions = get_available_tools_for_context(ctx)
+    schemas, functions = get_available_tools_for_context(ctx, group_name, apply_filters)
     py_schema_index: Dict[str, Dict[str, Any]] = {}
     logger.info(f"[AUTO-ROUTE] Evaluating Python tools for context='{ctx}' (count={len(schemas)})")
     for sch in schemas:
@@ -567,9 +704,16 @@ async def maybe_execute_best_tool_by_description(
             if not getattr(f, "is_active", True):
                 logger.info(f"[AUTO-ROUTE][FLOW] Skip '{getattr(f,'name',None)}': inactive")
                 continue
-            if not _flow_allowed_in_context(db, f, ctx):
+            allowed, matched_group = _flow_allowed_in_context(
+                db,
+                f,
+                ctx,
+                group_name,
+                apply_filters,
+            )
+            if not allowed:
                 logger.info(
-                    f"[AUTO-ROUTE][FLOW] Skip '{f.name}': not allowed in context '{ctx}'"
+                    f"[AUTO-ROUTE][FLOW] Skip '{f.name}': not allowed for context='{ctx}' group='{group_name}'"
                 )
                 continue
             kws = _extract_keywords_from_description(f.description)
@@ -587,8 +731,12 @@ async def maybe_execute_best_tool_by_description(
             if not best_kw:
                 logger.info(f"[AUTO-ROUTE][FLOW] Skip '{f.name}': no keyword matched in user_text; kws={kws}")
                 continue
-            logger.info(f"[AUTO-ROUTE][FLOW] Candidate '{f.name}' matched_kw='{best_kw}' score={best_score}")
-            flow_candidates.append((best_score, f, best_kw))
+            bonus = 1000 if matched_group else 0
+            score_with_priority = best_score + bonus
+            logger.info(
+                f"[AUTO-ROUTE][FLOW] Candidate '{f.name}' matched_kw='{best_kw}' score={best_score} bonus={bonus}"
+            )
+            flow_candidates.append((score_with_priority, f, best_kw))
     finally:
         db.close()
 
@@ -658,9 +806,14 @@ async def maybe_execute_best_tool_by_llm(
         return None
 
     ctx = context or ""
+    group_name = None
+    if isinstance(state, dict):
+        group_name = state.get("group_name")
+
+    apply_filters = ENABLE_GROUP_FILTERING
 
     # Collect Python tool candidates
-    schemas, functions = get_available_tools_for_context(ctx)
+    schemas, functions = get_available_tools_for_context(ctx, group_name, apply_filters)
     py_candidates: List[Dict[str, str]] = []
     py_schema_index: Dict[str, Dict[str, Any]] = {}
     for sch in schemas:
@@ -687,7 +840,14 @@ async def maybe_execute_best_tool_by_llm(
         for f in LangFlowService.get_all_flows(db):
             if not getattr(f, "is_active", True):
                 continue
-            if not _flow_allowed_in_context(db, f, ctx):
+            allowed, matched_group = _flow_allowed_in_context(
+                db,
+                f,
+                ctx,
+                group_name,
+                apply_filters,
+            )
+            if not allowed:
                 continue
             desc = getattr(f, "description", None) or ""
             if len(desc) > AUTO_ROUTE_MAX_DESC_CHARS:
@@ -695,7 +855,10 @@ async def maybe_execute_best_tool_by_llm(
             nm = getattr(f, "name", None)
             if not nm:
                 continue
-            flow_candidates.append({"type": "flow", "name": nm, "description": str(desc)})
+            visibility = "group" if matched_group else "public"
+            flow_candidates.append(
+                {"type": "flow", "name": nm, "description": str(desc), "visibility": visibility}
+            )
             flow_index[nm] = f
     finally:
         db.close()

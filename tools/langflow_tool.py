@@ -19,6 +19,49 @@ langflow_list_config = {
 # registry.py에서 수집할 실제 설명 (중복 방지)
 langflow_descriptions = [langflow_execute_config, langflow_list_config]
 
+ENABLE_GROUP_FILTERING = os.getenv("ENABLE_GROUP_FILTERING", "true").lower() in {"1", "true", "yes", "on"}
+
+
+def _flow_allowed_for_context(
+    db: SessionLocal,
+    flow_id: str,
+    context: Optional[str],
+    group_name: Optional[str],
+) -> bool:
+    if not context:
+        return True
+
+    mappings = (
+        db.query(LangflowToolMapping)
+        .filter(
+            LangflowToolMapping.flow_id == flow_id,
+            LangflowToolMapping.context == context,
+        )
+        .all()
+    )
+
+    if not mappings:
+        return False
+
+    if not ENABLE_GROUP_FILTERING:
+        return True
+
+    normalized_group = (group_name or "").strip().lower() or None
+    if normalized_group is not None:
+        for mapping in mappings:
+            val = (mapping.group_name or "").strip().lower() or None
+            if val is not None and val == normalized_group:
+                return True
+        for mapping in mappings:
+            if mapping.group_name is None:
+                return True
+        return False
+
+    for mapping in mappings:
+        if mapping.group_name is None:
+            return True
+    return False
+
 async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> Dict[str, Any]:
     """저장된 LangFlow JSON을 실행하는 노드"""
     try:
@@ -62,18 +105,14 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
             
             # 현재 컨텍스트에서 사용 가능한지 확인
             current_ctx = state.get("context")
-            if current_ctx:
-                allowed = db.query(LangflowToolMapping).filter(
-                    LangflowToolMapping.flow_id == db_flow.flow_id,
-                    LangflowToolMapping.context == current_ctx
-                ).first()
-                if not allowed:
-                    return {
-                        "messages": [{
-                            "role": "assistant",
-                            "content": f"현재 컨텍스트('{current_ctx}')에서는 '{flow_name}' 플로우를 사용할 수 없습니다."
-                        }]
-                    }
+            group_name = state.get("group_name") if isinstance(state, dict) else None
+            if current_ctx and not _flow_allowed_for_context(db, db_flow.flow_id, current_ctx, group_name):
+                return {
+                    "messages": [{
+                        "role": "assistant",
+                        "content": f"현재 컨텍스트('{current_ctx}')에서는 '{flow_name}' 플로우를 사용할 수 없습니다."
+                    }]
+                }
 
             # 플로우 데이터 로드
             flow_data = LangFlowService.get_flow_data_as_dict(db_flow)
@@ -131,12 +170,15 @@ async def list_langflows_run(tool_input: Optional[Dict[str, Any]], state: AgentS
         db = SessionLocal()
         try:
             current_ctx = state.get("context")
+            group_name = state.get("group_name") if isinstance(state, dict) else None
             all_flows = LangFlowService.get_all_flows(db)
-            if current_ctx:
-                allowed_ids = {m.flow_id for m in db.query(LangflowToolMapping).filter(LangflowToolMapping.context == current_ctx).all()}
-                db_flows = [f for f in all_flows if f.flow_id in allowed_ids]
-            else:
-                db_flows = all_flows
+            db_flows: List[Any] = []
+            for flow in all_flows:
+                if not getattr(flow, "is_active", True):
+                    continue
+                if current_ctx and not _flow_allowed_for_context(db, flow.flow_id, current_ctx, group_name):
+                    continue
+                db_flows.append(flow)
             
             if not db_flows:
                 return {

@@ -39,7 +39,11 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
 
     # ---- 서버 도구 함수 로드 ----
     # 스키마는 이미 chat_api에서 병합되었으므로, 여기서는 실행할 함수만 가져온다.
-    _schemas, server_tool_functions = tool_dispatcher.get_available_tools_for_context(context)
+    group_name = state.get("group_name") if isinstance(state, dict) else None
+    _schemas, server_tool_functions = tool_dispatcher.get_available_tools_for_context(
+        context,
+        group_name,
+    )
     
     # Pydantic 모델을 dict로 변환
     combined_tool_schemas = [t if isinstance(t, dict) else t.model_dump(exclude_none=True) for t in resolved_tools]

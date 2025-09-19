@@ -189,6 +189,21 @@ class FlowCreate(BaseModel):
         description="Single context tag or array of tags to expose this flow."
     )
     contexts: Optional[List[str]] = Field(None, description="Context tags to expose this flow.")
+    context_groups: Optional[List["FlowContextGroup"]] = Field(
+        None,
+        description="Optional list of context/group mappings. Each item specifies a context and its allowed group names."
+    )
+
+
+class FlowContextGroup(BaseModel):
+    context: str = Field(..., description="Context name (e.g., 'aider').")
+    group_names: Optional[List[str]] = Field(
+        None,
+        description="Group names allowed for this context. Omit or empty to mark the context as public."
+    )
+
+
+FlowCreate.model_rebuild()
 
 class FlowRead(BaseModel):
     id: int

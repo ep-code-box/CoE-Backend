@@ -190,7 +190,8 @@ async def handle_agent_request(
         if hasattr(tool_dispatcher, "get_available_tools_for_context"):
             # (schemas, functions) 튜플을 반환하므로 schemas만 사용
             server_schemas, _functions = tool_dispatcher.get_available_tools_for_context(
-                req.context or ""
+                req.context or "",
+                req.group_name,
             )
             logger.info(
                 f"[TOOLS] context='{req.context}' → server_schemas={len(server_schemas)}"

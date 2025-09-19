@@ -1,3 +1,5 @@
+from typing import Dict, List, Optional, Set
+
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 import logging
@@ -22,6 +24,33 @@ def upsert_flow(
     """
     flow_body_dict = flow_create_schema.flow_body.model_dump() if hasattr(flow_create_schema.flow_body, 'model_dump') else flow_create_schema.flow_body.dict()
     contexts: list[str] = []
+    context_to_groups: Dict[str, Set[Optional[str]]] = {}
+
+    def _record_context(ctx: Optional[str]) -> Optional[str]:
+        if ctx is None:
+            return None
+        cleaned = str(ctx).strip()
+        if not cleaned:
+            return None
+        if cleaned not in contexts:
+            contexts.append(cleaned)
+        return cleaned
+
+    def _add_mapping(ctx: Optional[str], groups: Optional[List[str]] = None) -> None:
+        cleaned_ctx = _record_context(ctx)
+        if not cleaned_ctx:
+            return
+        bucket = context_to_groups.setdefault(cleaned_ctx, set())
+        if not groups:
+            bucket.add(None)
+            return
+        for raw in groups:
+            name = (raw or "").strip()
+            if not name:
+                bucket.add(None)
+            else:
+                bucket.add(name.lower())
+
     # contexts 필드(복수) 우선, 없으면 단수 context 사용
     try:
         if getattr(flow_create_schema, 'contexts', None):
@@ -47,6 +76,18 @@ def upsert_flow(
                 contexts = [c] if c else []
     except Exception:
         contexts = []
+
+    for ctx in contexts:
+        _add_mapping(ctx)
+
+    if getattr(flow_create_schema, "context_groups", None):
+        for cfg in flow_create_schema.context_groups:
+            try:
+                ctx = cfg.context
+                groups = cfg.group_names or []
+                _add_mapping(ctx, groups)
+            except Exception:
+                continue
 
     # Determine upsert strategy: by flow_id first, then by endpoint name
     # 1) If a flow with the given flow_id exists, update it
@@ -85,18 +126,47 @@ def upsert_flow(
             if not db_flow:
                 raise HTTPException(status_code=500, detail="Failed to create flow in database.")
 
-    # Upsert context mappings if provided
-    if contexts:
-        existing = db.query(LangflowToolMapping).filter(LangflowToolMapping.flow_id == db_flow.flow_id).all()
-        existing_contexts = {m.context for m in existing}
-        desired_contexts = set(contexts)
+    # Upsert context/group mappings if provided
+    if context_to_groups:
+        existing = db.query(LangflowToolMapping).filter(
+            LangflowToolMapping.flow_id == db_flow.flow_id
+        ).all()
 
-        # add new contexts
-        for ctx in (desired_contexts - existing_contexts):
-            db.add(LangflowToolMapping(flow_id=db_flow.flow_id, context=ctx, description=db_flow.description))
-        # remove contexts no longer desired
-        for ctx in (existing_contexts - desired_contexts):
-            db.query(LangflowToolMapping).filter(LangflowToolMapping.flow_id == db_flow.flow_id, LangflowToolMapping.context == ctx).delete()
+        existing_pairs: Set[tuple[str, Optional[str]]] = {
+            (m.context, m.group_name or None) for m in existing
+        }
+
+        desired_pairs: Set[tuple[str, Optional[str]]] = set()
+        for ctx, groups in context_to_groups.items():
+            if not groups:
+                desired_pairs.add((ctx, None))
+                continue
+            for grp in groups:
+                desired_pairs.add((ctx, grp))
+
+        # add new mappings
+        for ctx, grp in desired_pairs - existing_pairs:
+            db.add(
+                LangflowToolMapping(
+                    flow_id=db_flow.flow_id,
+                    context=ctx,
+                    group_name=grp if grp is not None else None,
+                    description=db_flow.description,
+                )
+            )
+
+        # remove stale mappings
+        for ctx, grp in existing_pairs - desired_pairs:
+            query = db.query(LangflowToolMapping).filter(
+                LangflowToolMapping.flow_id == db_flow.flow_id,
+                LangflowToolMapping.context == ctx,
+            )
+            if grp is None:
+                query = query.filter(LangflowToolMapping.group_name.is_(None))
+            else:
+                query = query.filter(LangflowToolMapping.group_name == grp)
+            query.delete()
+
         db.commit()
 
     # Convert DB model to API schema

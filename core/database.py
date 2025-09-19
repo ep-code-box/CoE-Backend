@@ -126,6 +126,8 @@ class LangflowToolMapping(Base):
     flow_id = Column(String(255), ForeignKey('langflows.flow_id'), nullable=False)
     # 어떤 프론트(context)에서 사용 가능한지 표시 (ex: 'aider', 'openWebUi')
     context = Column(String(255), nullable=False, index=True)
+    # 그룹별 노출을 제한할 때 사용 (NULL이면 공용)
+    group_name = Column(String(255), nullable=True, index=True)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
