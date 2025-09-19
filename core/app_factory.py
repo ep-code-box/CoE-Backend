@@ -14,6 +14,7 @@ from api.models_api import router as models_router
 from api.health_api import router as health_router
 from api.coding_assistant.code_api import router as coding_assistant_router
 from api.embeddings_api import router as embeddings_router
+from api.rag_api import router as rag_router
 from core.database import init_database
 from core.lifespan import lifespan
 from core.logging_config import LOGGING_CONFIG
@@ -203,6 +204,7 @@ class AppFactory:
         app.include_router(flows_router)
         app.include_router(coding_assistant_router)
         app.include_router(embeddings_router)
+        app.include_router(rag_router)
         
         # 동적 도구 API는 나중에 등록 (순서 중요)
         from api.tools.dynamic_tools_api import DynamicToolsAPI
