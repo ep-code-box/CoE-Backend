@@ -1,5 +1,6 @@
 import os
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, JSON, Float, ForeignKey, Enum, DECIMAL, inspect
+from sqlalchemy.dialects import mysql
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -164,7 +165,7 @@ class ChatMessage(Base):
     id = Column(Integer, primary_key=True, index=True)
     session_id = Column(String(100), nullable=False)
     role = Column(String(50), nullable=False)  # user, assistant, system
-    content = Column(Text, nullable=False)
+    content = Column(mysql.LONGTEXT, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
     turn_number = Column(Integer, nullable=False)
     
