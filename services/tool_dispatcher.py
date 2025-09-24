@@ -504,8 +504,26 @@ async def run_langflow_tool(langflow: LangFlow, tool_input: Optional[Dict[str, A
         logger.info(f"Calling LangFlow execution endpoint: {execution_url}")
         async with httpx.AsyncClient() as client:
             response = await client.post(execution_url, json=request_body, timeout=300.0)
-            response.raise_for_status() # 4xx, 5xx 에러 발생 시 예외 처리
-            return response.json()
+            response.raise_for_status()  # 4xx, 5xx 에러 발생 시 예외 처리
+            payload = response.json()
+
+        # LangFlow의 응답은 종종 outputs/outputs[0]/artifacts 등의 중첩 구조를 가집니다.
+        # 사용자가 보기 쉬운 1차 메시지로 정제한 뒤 assistant 메시지 형태로 감쌉니다.
+        outputs: Any = payload
+        if isinstance(payload, dict):
+            if "outputs" in payload:
+                outputs = payload["outputs"]
+            elif "result" in payload:
+                outputs = payload["result"]
+
+        content = _format_flow_outputs_for_chat(outputs)
+        logger.debug(
+            "LangFlow '%s' responded with payload=%s | formatted=%s",
+            endpoint_name,
+            payload,
+            content,
+        )
+        return {"messages": [{"role": "assistant", "content": content}]}
 
     except httpx.RequestError as e:
         logger.error(f"HTTP request to LangFlow failed: {e}", exc_info=True)

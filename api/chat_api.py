@@ -84,6 +84,18 @@ def _tool_key_for_merge(t: Any) -> str:
         pass
     return str(id(t))
 
+
+def _shorten_for_log(text: Optional[str], limit: int = 400) -> str:
+    """Collapse whitespace and cap length for log safety."""
+    if not text:
+        return ""
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) <= limit:
+        return compact
+    overflow = len(compact) - limit
+    return f"{compact[:limit]}…(+{overflow} chars)"
+
+
 def _merge_tool_schemas(server_schemas: List[Any], client_schemas: Optional[List[Any]]) -> List[Any]:
     """
     서버에서 로드한 도구 스키마 + 클라이언트 도구 스키마 병합(중복 제거)
@@ -217,6 +229,15 @@ async def handle_agent_request(
         tools=resolved_tools,
     )
 
+    logger.info(
+        "[CHAT][REQUEST] session=%s context=%s group=%s model=%s user=%s",
+        current_session_id,
+        req.context or "",
+        req.group_name or "",
+        req.model,
+        _shorten_for_log(current_user_content),
+    )
+
     try:
         # --- Fallback to agent flow (tool dispatcher handles auto-routing) ---
         logger.info(
@@ -290,6 +311,17 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
 
         model_client = get_client_for_model(req.model)
 
+        last_user_message = ""
+        for msg in reversed(req.messages or []):
+            if msg.role == "user":
+                last_user_message = msg.content
+                break
+        logger.info(
+            "[CHAT][LLM REQUEST] model=%s user=%s",
+            req.model,
+            _shorten_for_log(last_user_message),
+        )
+
         params: Dict[str, Any] = {
             "model": req.model,
             "messages": [msg.model_dump(exclude_none=True) for msg in req.messages],
@@ -357,6 +389,15 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
 
     session, current_session_id, history_dicts, current_user_content = await _get_or_create_session_and_history(
         req, chat_service, request
+    )
+
+    logger.info(
+        "[CHAT][RAG REQUEST] session=%s context=%s group=%s model=%s user=%s",
+        current_session_id,
+        req.context or "",
+        req.group_name or "",
+        req.model,
+        _shorten_for_log(current_user_content),
     )
 
     user_query = current_user_content
