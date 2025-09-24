@@ -137,12 +137,17 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
             execution_result = await langflow_service.execute_flow(flow_data, inputs)
             
             if execution_result.success:
-                result = f"실행 시간: {execution_result.execution_time:.2f}초\n"
-                result += f"세션 ID: {execution_result.session_id}\n"
-                if execution_result.outputs:
-                    result += f"출력 결과:\n{json.dumps(execution_result.outputs, indent=2, ensure_ascii=False)}"
-                else:
-                    result = "플로우가 성공적으로 실행되었습니다."
+                from services.tool_dispatcher import _format_flow_outputs_for_chat
+
+                pretty_output = _format_flow_outputs_for_chat(execution_result.outputs or {})
+                result_lines = [
+                    f"실행 시간: {execution_result.execution_time:.2f}초",
+                    f"세션 ID: {execution_result.session_id}",
+                ]
+                if pretty_output:
+                    result_lines.append("출력 결과:")
+                    result_lines.append(pretty_output)
+                result = "\n".join(result_lines)
             else:
                 result = f"실행 실패: {execution_result.error}"
             
