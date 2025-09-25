@@ -177,6 +177,31 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
             if inner:
                 return inner
 
+    # Objects exposing LangFlow-style attributes
+    if hasattr(obj, "results"):
+        try:
+            inner = _extract_primary_text(getattr(obj, "results"))
+            if inner:
+                return inner
+        except Exception:
+            pass
+
+    if hasattr(obj, "dict") and callable(getattr(obj, "dict")):
+        try:
+            inner = _extract_primary_text(obj.dict())  # type: ignore[arg-type]
+            if inner:
+                return inner
+        except Exception:
+            pass
+
+    if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
+        try:
+            inner = _extract_primary_text(obj.to_dict())  # type: ignore[arg-type]
+            if inner:
+                return inner
+        except Exception:
+            pass
+
     # Dataclass or custom objects: inspect common attributes / __dict__
     try:
         if hasattr(obj, "text") and isinstance(getattr(obj, "text"), str):
