@@ -151,6 +151,38 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
             if inner:
                 return inner
 
+    # Dataclass or custom objects: inspect common attributes / __dict__
+    try:
+        if hasattr(obj, "text") and isinstance(getattr(obj, "text"), str):
+            text_attr = getattr(obj, "text").strip()
+            if text_attr:
+                return text_attr
+        if hasattr(obj, "message") and isinstance(getattr(obj, "message"), str):
+            message_attr = getattr(obj, "message").strip()
+            if message_attr:
+                return message_attr
+        if hasattr(obj, "data") and isinstance(getattr(obj, "data"), dict):
+            inner = _extract_primary_text(getattr(obj, "data"))
+            if inner:
+                return inner
+        if hasattr(obj, "__dict__"):
+            dict_view = vars(obj)
+            if dict_view:
+                inner = _extract_primary_text(dict_view)
+                if inner:
+                    return inner
+    except Exception:
+        pass
+
+    if hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes, dict)):
+        try:
+            for item in obj:
+                inner = _extract_primary_text(item)
+                if inner:
+                    return inner
+        except Exception:
+            pass
+
     # List path: scan items
     if isinstance(obj, list):
         for it in obj:
