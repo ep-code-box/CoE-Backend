@@ -73,6 +73,18 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
 
     # Dict path: prefer specific keys
     if isinstance(obj, dict):
+        # flow outputs often come wrapped like {'message': {'message': '...'} }
+        if set(obj.keys()) == {"message"} and isinstance(obj.get("message"), dict):
+            inner_candidate = obj.get("message")
+            normalized = _extract_primary_text(inner_candidate)
+            if normalized:
+                return normalized
+
+        if all(k in obj for k in ("message", "type")) and isinstance(obj.get("message"), str):
+            maybe_msg = obj.get("message", "").strip()
+            if maybe_msg:
+                return maybe_msg
+
         # Handle 'raw' string payloads by attempting to parse for a likely message
         raw = obj.get("raw")
         if isinstance(raw, str):
