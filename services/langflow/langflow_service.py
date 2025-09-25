@@ -6,6 +6,7 @@ LangFlow 실행 서비스
 import time
 import inspect
 import json as _json
+import re
 from typing import Dict, Any, Optional, List
 from core.schemas import ExecuteFlowResponse
 
@@ -248,6 +249,157 @@ class LangFlowExecutionService:
                     "Please pin a compatible 'langflow' version or update the integration."
                 )
 
+            text_field_pattern = re.compile(
+                r"'text'\s*:\s*\"([^\"\\]*(?:\\.[^\"\\]*)*)\"",
+                re.S,
+            )
+
+            def _decode_text_from_repr(raw: str) -> Optional[str]:
+                """Attempt to extract a "text" value from repr strings."""
+                try:
+                    match = text_field_pattern.search(raw)
+                    if match:
+                        return match.group(1).strip()
+                except Exception:
+                    return None
+                return None
+
+            def _coerce_langflow_value(value: Any) -> Any:
+                if isinstance(value, (str, bytes, dict, list)) or value is None:
+                    return value
+
+                for attr in ("model_dump", "dict", "to_dict"):
+                    method = getattr(value, attr, None)
+                    if callable(method):
+                        try:
+                            coerced = method()  # type: ignore[misc]
+                            if coerced is not None:
+                                return coerced
+                        except TypeError:
+                            try:
+                                coerced = method(exclude_none=True)  # type: ignore[misc]
+                                if coerced is not None:
+                                    return coerced
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+
+                if hasattr(value, "__dict__"):
+                    try:
+                        return vars(value)
+                    except TypeError:
+                        pass
+
+                if hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
+                    try:
+                        return list(value)
+                    except TypeError:
+                        pass
+
+                return value
+
+            def _extract_text(obj: Any) -> Optional[str]:
+                if obj is None:
+                    return None
+
+                coerced = _coerce_langflow_value(obj)
+
+                if isinstance(coerced, bytes):
+                    try:
+                        coerced = coerced.decode("utf-8", "ignore")
+                    except Exception:
+                        coerced = coerced.decode(errors="ignore")
+
+                if isinstance(coerced, str):
+                    stripped = coerced.strip()
+                    if not stripped:
+                        return None
+                    if "'text'" in stripped and "ResultData" in stripped:
+                        decoded = _decode_text_from_repr(stripped)
+                        if decoded:
+                            return decoded
+                    return stripped
+
+                if isinstance(coerced, dict):
+                    category = coerced.get("category")
+                    entry_type = coerced.get("type")
+
+                    if category == "message" or entry_type == "message":
+                        for key in ("text", "message", "content", "value"):
+                            val = coerced.get(key)
+                            text_val = _extract_text(val)
+                            if text_val:
+                                return text_val
+                        data_node = coerced.get("data")
+                        text_val = _extract_text(data_node)
+                        if text_val:
+                            return text_val
+
+                    if "data" in coerced:
+                        data_node = coerced.get("data")
+                        text_val = _extract_text(data_node)
+                        if text_val:
+                            return text_val
+
+                    if entry_type == "dataframe" or (isinstance(coerced, dict) and "dataframe" in coerced):
+                        dataframe = coerced.get("dataframe")
+                        if dataframe is None and isinstance(coerced.get("data"), list):
+                            dataframe = coerced.get("data")
+                        if isinstance(dataframe, list):
+                            for row in dataframe:
+                                text_val = _extract_text(row)
+                                if text_val:
+                                    return text_val
+
+                    for key in (
+                        "text",
+                        "message",
+                        "content",
+                        "output",
+                        "result",
+                        "value",
+                        "artifacts",
+                        "results",
+                        "messages",
+                        "outputs",
+                        "data",
+                        "logs",
+                    ):
+                        if key in coerced:
+                            text_val = _extract_text(coerced[key])
+                            if text_val:
+                                return text_val
+
+                    return None
+
+                if isinstance(coerced, list):
+                    for item in coerced:
+                        text_val = _extract_text(item)
+                        if text_val:
+                            return text_val
+
+                for attr in ("results", "messages", "outputs", "artifacts", "data"):
+                    if hasattr(coerced, attr):
+                        try:
+                            text_val = _extract_text(getattr(coerced, attr))
+                            if text_val:
+                                return text_val
+                        except Exception:
+                            continue
+
+                if hasattr(coerced, "text") and isinstance(getattr(coerced, "text"), str):
+                    text_prop = getattr(coerced, "text").strip()
+                    if text_prop:
+                        return text_prop
+
+                if hasattr(coerced, "message") and isinstance(getattr(coerced, "message"), str):
+                    msg_prop = getattr(coerced, "message").strip()
+                    if msg_prop:
+                        return msg_prop
+
+                return None
+
             # langflow 러너 실행
             result_data = runner(flow_data, inputs)
             
@@ -277,112 +429,13 @@ class LangFlowExecutionService:
                 except Exception:
                     outputs = {"value": getattr(result_data, 'outputs', None)}
 
-            # Heuristic: try to extract a primary text field if still empty
-            def _find_text(obj):
-                try:
-                    if obj is None:
-                        return None
-
-                    if isinstance(obj, (str, bytes)):
-                        text_val = obj.decode("utf-8", "ignore") if isinstance(obj, bytes) else obj
-                        text_val = text_val.strip()
-                        return text_val or None
-
-                    if isinstance(obj, dict):
-                        category = obj.get("category")
-                        entry_type = obj.get("type")
-
-                        if category == "message" or entry_type == "message":
-                            direct = obj.get("text") or obj.get("message") or obj.get("content")
-                            if isinstance(direct, str) and direct.strip():
-                                return direct.strip()
-                            data_block = obj.get("data")
-                            if isinstance(data_block, dict):
-                                data_text = data_block.get("text")
-                                if isinstance(data_text, str) and data_text.strip():
-                                    return data_text.strip()
-
-                        if entry_type == "data" or "data" in obj:
-                            data_node = obj.get("data", obj)
-                            if isinstance(data_node, dict):
-                                text_field = data_node.get("text")
-                                if isinstance(text_field, str) and text_field.strip():
-                                    return text_field.strip()
-                            nested = _find_text(data_node)
-                            if nested:
-                                return nested
-
-                        if entry_type == "dataframe" or (isinstance(obj, dict) and "dataframe" in obj):
-                            dataframe = obj.get("dataframe")
-                            if dataframe is None and isinstance(obj.get("data"), list):
-                                dataframe = obj.get("data")
-                            if isinstance(dataframe, list) and dataframe:
-                                first_row = dataframe[0]
-                                if isinstance(first_row, dict):
-                                    row_text = first_row.get("text")
-                                    if isinstance(row_text, str) and row_text.strip():
-                                        return row_text.strip()
-                                nested = _find_text(first_row)
-                                if nested:
-                                    return nested
-
-                        for key in ("text", "content", "message", "output", "result"):
-                            val = obj.get(key)
-                            if isinstance(val, (str, bytes)) and val:
-                                if isinstance(val, bytes):
-                                    decoded = val.decode("utf-8", "ignore").strip()
-                                    if decoded:
-                                        return decoded
-                                else:
-                                    stripped = val.strip()
-                                    if stripped:
-                                        return stripped
-                            nested = _find_text(val)
-                            if nested:
-                                return nested
-
-                    if isinstance(obj, list):
-                        for it in obj:
-                            s = _find_text(it)
-                            if s:
-                                return s
-
-                    for attr in ("results", "message", "text", "content"):
-                        if hasattr(obj, attr):
-                            val = getattr(obj, attr)
-                            if isinstance(val, (str, bytes)):
-                                decoded = val.decode("utf-8", "ignore") if isinstance(val, bytes) else val
-                                if decoded.strip():
-                                    return decoded.strip()
-                            nested = _find_text(val)
-                            if nested:
-                                return nested
-
-                    for method_name in ("model_dump", "dict", "to_dict"):
-                        if hasattr(obj, method_name) and callable(getattr(obj, method_name)):
-                            try:
-                                data_obj = getattr(obj, method_name)()
-                                nested = _find_text(data_obj)
-                                if nested:
-                                    return nested
-                            except Exception:
-                                pass
-
-                    if hasattr(obj, "data"):
-                        nested = _find_text(getattr(obj, "data"))
-                        if nested:
-                            return nested
-
-                    if hasattr(obj, "__dict__"):
-                        return _find_text(vars(obj))
-                except Exception:
-                    return None
-                return None
-
-            if not outputs or (isinstance(outputs, dict) and not outputs):
-                primary = _find_text(result_data)
-                if primary:
-                    outputs = {"text": primary}
+            extracted_outputs_text = _extract_text(outputs)
+            if extracted_outputs_text:
+                outputs = {"text": extracted_outputs_text}
+            else:
+                fallback_text = _extract_text(result_data)
+                if fallback_text:
+                    outputs = {"text": fallback_text}
             # As a final fallback, serialize the entire result for visibility
             if not outputs or (isinstance(outputs, dict) and not outputs):
                 try:
