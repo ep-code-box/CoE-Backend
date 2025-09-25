@@ -93,6 +93,15 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
                     if s:
                         return s
 
+        data_block = obj.get("data")
+        if isinstance(data_block, dict):
+            data_text = data_block.get("text")
+            if isinstance(data_text, str) and data_text.strip():
+                return data_text.strip()
+            inner = _extract_primary_text(data_block)
+            if inner:
+                return inner
+
         # artifacts often carries a flat message
         artifacts = obj.get("artifacts")
         if isinstance(artifacts, dict):
@@ -109,6 +118,31 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
             inner = _extract_primary_text(outputs)
             if inner:
                 return inner
+
+        results = obj.get("results")
+        if results is not None:
+            inner = _extract_primary_text(results)
+            if inner:
+                return inner
+
+        value_field = obj.get("value")
+        if isinstance(value_field, str) and value_field.strip():
+            return value_field.strip()
+
+        # fallback: scan remaining values for recognizable text fields
+        try:
+            for key, value in obj.items():
+                if isinstance(value, str):
+                    lowered = str(key).lower()
+                    if lowered in {"text", "message", "content", "output", "result", "value"}:
+                        candidate = value.strip()
+                        if candidate:
+                            return candidate
+                inner = _extract_primary_text(value)
+                if inner:
+                    return inner
+        except Exception:
+            pass
 
         # messages list with dicts
         messages = obj.get("messages")
