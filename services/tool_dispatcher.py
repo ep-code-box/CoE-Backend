@@ -56,6 +56,20 @@ def _extract_text_from_raw_string(s: str) -> Optional[str]:
         m = _re.search(r"'text'\s*:\s*'([^']+)'", s)
         if m:
             return m.group(1).strip()
+        # Double-quoted text/message content
+        m = _re.search(r'"text"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', s)
+        if m:
+            return m.group(1).strip()
+        m = _re.search(r"'text'\s*:\s*\"([^\"\\]*(?:\\.[^\"\\]*)*)\"", s)
+        if m:
+            return m.group(1).strip()
+        m = _re.search(r'"message"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', s)
+        if m:
+            return m.group(1).strip()
+        # `Message(text_key='text', data={'text': "..."})` pattern
+        m = _re.search(r"data=\{[^}]*['\"]text['\"]\s*:\s*\"([^\"\\]*(?:\\.[^\"\\]*)*)\"", s, _re.S)
+        if m:
+            return m.group(1).strip()
     except Exception:
         pass
     return None
