@@ -280,20 +280,101 @@ class LangFlowExecutionService:
             # Heuristic: try to extract a primary text field if still empty
             def _find_text(obj):
                 try:
+                    if obj is None:
+                        return None
+
+                    if isinstance(obj, (str, bytes)):
+                        text_val = obj.decode("utf-8", "ignore") if isinstance(obj, bytes) else obj
+                        text_val = text_val.strip()
+                        return text_val or None
+
                     if isinstance(obj, dict):
-                        for k in ("text", "content", "message", "output", "result"):
-                            if k in obj and isinstance(obj[k], (str, bytes)) and obj[k]:
-                                return obj[k]
-                        # scan nested
-                        for v in obj.values():
-                            s = _find_text(v)
-                            if s:
-                                return s
-                    elif isinstance(obj, list):
+                        category = obj.get("category")
+                        entry_type = obj.get("type")
+
+                        if category == "message" or entry_type == "message":
+                            direct = obj.get("text") or obj.get("message") or obj.get("content")
+                            if isinstance(direct, str) and direct.strip():
+                                return direct.strip()
+                            data_block = obj.get("data")
+                            if isinstance(data_block, dict):
+                                data_text = data_block.get("text")
+                                if isinstance(data_text, str) and data_text.strip():
+                                    return data_text.strip()
+
+                        if entry_type == "data" or "data" in obj:
+                            data_node = obj.get("data", obj)
+                            if isinstance(data_node, dict):
+                                text_field = data_node.get("text")
+                                if isinstance(text_field, str) and text_field.strip():
+                                    return text_field.strip()
+                            nested = _find_text(data_node)
+                            if nested:
+                                return nested
+
+                        if entry_type == "dataframe" or (isinstance(obj, dict) and "dataframe" in obj):
+                            dataframe = obj.get("dataframe")
+                            if dataframe is None and isinstance(obj.get("data"), list):
+                                dataframe = obj.get("data")
+                            if isinstance(dataframe, list) and dataframe:
+                                first_row = dataframe[0]
+                                if isinstance(first_row, dict):
+                                    row_text = first_row.get("text")
+                                    if isinstance(row_text, str) and row_text.strip():
+                                        return row_text.strip()
+                                nested = _find_text(first_row)
+                                if nested:
+                                    return nested
+
+                        for key in ("text", "content", "message", "output", "result"):
+                            val = obj.get(key)
+                            if isinstance(val, (str, bytes)) and val:
+                                if isinstance(val, bytes):
+                                    decoded = val.decode("utf-8", "ignore").strip()
+                                    if decoded:
+                                        return decoded
+                                else:
+                                    stripped = val.strip()
+                                    if stripped:
+                                        return stripped
+                            nested = _find_text(val)
+                            if nested:
+                                return nested
+
+                    if isinstance(obj, list):
                         for it in obj:
                             s = _find_text(it)
                             if s:
                                 return s
+
+                    for attr in ("results", "message", "text", "content"):
+                        if hasattr(obj, attr):
+                            val = getattr(obj, attr)
+                            if isinstance(val, (str, bytes)):
+                                decoded = val.decode("utf-8", "ignore") if isinstance(val, bytes) else val
+                                if decoded.strip():
+                                    return decoded.strip()
+                            nested = _find_text(val)
+                            if nested:
+                                return nested
+
+                    for method_name in ("model_dump", "dict", "to_dict"):
+                        if hasattr(obj, method_name) and callable(getattr(obj, method_name)):
+                            try:
+                                data_obj = getattr(obj, method_name)()
+                                nested = _find_text(data_obj)
+                                if nested:
+                                    return nested
+                            except Exception:
+                                pass
+
+                    if hasattr(obj, "data"):
+                        nested = _find_text(getattr(obj, "data"))
+                        if nested:
+                            return nested
+
+                    if hasattr(obj, "__dict__"):
+                        return _find_text(vars(obj))
                 except Exception:
                     return None
                 return None

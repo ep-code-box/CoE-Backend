@@ -202,6 +202,24 @@ def _extract_primary_text(obj: Any) -> Optional[str]:
         except Exception:
             pass
 
+    if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump")):
+        try:
+            inner = _extract_primary_text(obj.model_dump())  # type: ignore[arg-type]
+            if inner:
+                return inner
+        except Exception:
+            pass
+
+    if hasattr(obj, "data") and not isinstance(obj, (str, bytes)):
+        try:
+            data_attr = getattr(obj, "data")
+            if isinstance(data_attr, (dict, list)):
+                inner = _extract_primary_text(data_attr)
+                if inner:
+                    return inner
+        except Exception:
+            pass
+
     # Dataclass or custom objects: inspect common attributes / __dict__
     try:
         if hasattr(obj, "text") and isinstance(getattr(obj, "text"), str):
