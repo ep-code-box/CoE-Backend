@@ -21,15 +21,45 @@
 ### 1. RAG 기반 개발 가이드 추출 (`rag_guide_tool`)
 
 - **설명**: Git 레포지토리를 분석하여 개발 가이드를 추출하거나, 새로운 RAG 분석을 시작합니다. `CoE-RagPipeline` 서비스와 연동하여 작동합니다.
+- **핵심 동작**:
+    - Git URL이 있으면 신규 분석을 트리거하고 분석 ID를 안내합니다.
+    - `analysis_id`가 주어지면 완료 여부를 확인한 뒤, 완료 시 검색/가이드 생성을 수행합니다.
+    - 진행 중(`pending`/`running`)인 분석은 즉시 안내 메시지를 반환하며 현재 단계·진행률을 함께 보여 줍니다.
+    - Git URL도, 기존 분석 ID도 없으면 “먼저 분석을 준비해 달라”는 가이드를 제공합니다.
 - **파라미터**:
     - `git_url` (string, 선택): 분석할 Git 레포지토리 URL. 제공되면 새로운 분석을 시작합니다.
     - `analysis_id` (string, 선택): 기존 분석 ID. 제공되면 해당 분석 결과를 사용하여 가이드를 추출합니다.
     - `group_name` (string, 선택): 분석 결과를 묶을 그룹명.
+    - `action` (string, 선택): `list_results`, `ingest_schema` 등 특정 보조 작업을 직접 지정합니다.
+    - `list_results`, `ingest_schema` (boolean, 선택): 각각 분석 목록 조회, RDB 스키마 임베딩을 즉시 실행합니다.
 - **사용 예시**:
     - 새로운 분석 시작: "https://github.com/my-org/my-repo 레포지토리 분석해줘"
     - 기존 분석으로 가이드 추출: "analysis_id abc-123-def로 개발 가이드 추출해줘"
+    - 저장된 분석 목록 확인: "기존 분석 목록 보여줘" → 내부적으로 `list_results` 동작
+    - RDB 스키마 임베딩: "RDB 스키마 다시 임베딩해 줘" → 내부적으로 `ingest_schema` 동작
 
-### 2. LangFlow 관리 (`langflow_tool`)
+### 2. 단일 문서 임베딩 및 분석 (`rag_content_tool`)
+
+- **설명**: “이 파일 내용인데 분석해줘”와 같은 요청을 처리합니다. 텍스트·파일·URL을 `CoE-RagPipeline`의 콘텐츠 임베딩 엔드포인트로 저장하고, LLM으로 요약/핵심 포인트/리스크/TODO를 정리합니다.
+- **입력 추출 로직**:
+    - 코드 블록(```` … ````)이나 `파일 내용:` 형식이 있으면 해당 본문을 자동으로 사용합니다.
+    - 200자 이상이며 줄바꿈이 포함된 본문도 문서로 간주합니다.
+    - 명시적으로 `content` 파라미터를 줄 수도 있습니다.
+- **파라미터**:
+    - `content` (string, 선택): 직접 제공할 문서 본문 텍스트.
+    - `title` (string, 선택): 문서를 식별할 제목. 미입력 시 메시지에서 추론합니다.
+    - `group_name` (string, 선택): 벡터 DB에 그룹 태그를 남깁니다.
+    - `metadata` (object, 선택): 추가 메타데이터.
+    - `source_type` (string, 선택): `text`(기본), `file`, `url` 중 선택.
+    - `source_data` (string, 선택): `file`/`url` 타입일 때 원본 경로나 URL.
+- **결과 값**:
+    - `analysis`: LLM이 생성한 요약 및 후속 조치.
+    - `embed_result`/`embed_error`: 벡터 DB 저장 성공 여부와 세부 정보.
+- **사용 예시**:
+    - “```\n<문서 본문>\n``` 이 문서 리뷰해서 정리해 줘”
+    - 직접 호출 시 `content`, `title`, `group_name` 등을 JSON으로 전달.
+
+### 3. LangFlow 관리 (`langflow_tool`)
 
 - **설명**: 저장된 LangFlow 워크플로우를 실행하거나 목록을 조회합니다.
 - **그룹 필터링**: LangFlow가 노출되려면 `langflow_tool_mappings`에 `(context, group_name)` 혹은 `(context, NULL)` 행이 존재해야 합니다. 특정 그룹만 볼 수 있도록 하려면 `group_name` 컬럼에 대상 그룹을 지정하세요.
@@ -41,7 +71,7 @@
         - **파라미터**: 없음
         - **사용 예시**: "저장된 플로우 목록 보여줘"
 
-### 3. 텍스트 분석 (`class_tool`)
+### 4. 텍스트 분석 (`class_tool`)
 
 - **설명**: 간단한 텍스트 분석을 수행합니다.
 - **도구**:
@@ -50,7 +80,7 @@
         - **사용 예시**: "이 문장 분석해줘: 안녕하세요"
     - `combined_tool`: API 호출과 분석을 조합하는 작업을 위한 플레이스홀더입니다. (현재는 입력 텍스트를 그대로 반환)
 
-### 4. LangChain 기반 분석 (`langchain_tool`)
+### 5. LangChain 기반 분석 (`langchain_tool`)
 
 - **설명**: LangChain Expression Language(LCEL)를 사용하여 텍스트를 요약하고 감성을 분석합니다.
 - **도구**:
@@ -58,19 +88,19 @@
         - **파라미터**: `text` (string, 필수) - 분석할 텍스트.
         - **사용 예시**: "이 긴 글을 요약하고 감성을 알려줘"
 
-### 5. SQL 에이전트 (`sql_agent_tool`)
+### 6. SQL 에이전트 (`sql_agent_tool`)
 
 - **설명**: 자연어 질문을 SQL로 변환하고 데이터베이스에 쿼리하여 답변을 생성합니다. `CoE-RagPipeline`의 SQL Agent와 연동됩니다.
 - **파라미터**: `query` (string, 필수) - 데이터베이스에 질문할 자연어 쿼리.
 - **사용 예시**: "지난 달 가장 많이 팔린 제품이 뭐야?"
 
-### 6. 서브그래프 호출 (`subgraph_tool`)
+### 7. 서브그래프 호출 (`subgraph_tool`)
 
 - **설명**: 미리 정의된 간단한 LangGraph 서브그래프를 호출하여 인사말을 반환하는 예제 도구입니다.
 - **파라미터**: 없음
 - **사용 예시**: "안녕"
 
-### 7. 대화 및 워크플로우 시각화 (`visualize_flow_tool`)
+### 8. 대화 및 워크플로우 시각화 (`visualize_flow_tool`)
 
 - **설명**: 대화 기록을 시각화하거나 사용자의 요청에 맞는 새로운 LangFlow 워크플로우를 생성합니다.
 - **도구**:
@@ -332,3 +362,20 @@ curl -X POST "http://localhost:8000/tools/rag-guide" \
   }
 ```
 이 방식은 `python_tool_router_service`가 생성한 API를 통해 해당 도구의 `run` 함수를 즉시 실행합니다.
+
+**예시: `rag_content_tool` 직접 호출**
+```bash
+curl -X POST "http://localhost:8000/tools/rag-content" \
+  -H "Content-Type: application/json" \
+  -d 
+    "title": "architecture.md",
+    "group_name": "docs",
+    "content": """
+      # 시스템 아키텍처
+
+      - 서비스 A는 ...
+      - 서비스 B는 ...
+    """
+  }
+```
+`content` 대신 `source_type: "file"`, `source_data: "/path/to/file"` 조합을 사용하면 파일 경로를 그대로 전달할 수 있습니다.
