@@ -13,9 +13,10 @@
 **Design Principles**
 - LLM-first arguments: Do NOT regex-parse user text for tool args. Let the LLM infer arguments from the tool’s JSON schema.
 - Preserve tool requests: even when auto-routing fires, the final `tool_call` must originate from the LLM so clients see a consistent history.
-- Natural output: Never return raw dumps to end users. Show the essential human‑readable message only.
+- Natural output: Never return raw dumps to end users. Show the essential human-readable message only.
 - Separation of concerns: Tools compute; dispatchers orchestrate; formatters shape the final message.
-- Reversible routing: `AUTO_ROUTE_STRATEGY` controls whether auto‑routing is used (see Configuration).
+- Reversible routing: `AUTO_ROUTE_STRATEGY` controls whether auto-routing is used (see Configuration).
+- Client directives first: if the incoming request includes `tool_choice`, the agent honors that instruction before attempting any auto-routing.
 
 **Key Modules**
 - `services/tool_dispatcher.py`

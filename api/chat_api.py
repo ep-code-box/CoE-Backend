@@ -227,6 +227,7 @@ async def handle_agent_request(
         tool_input=req.tool_input,
         context=req.context, # UI 컨텍스트: 에이전트 내부 분기/로깅에 활용
         tools=resolved_tools,
+        requested_tool_choice=req.tool_choice,
     )
 
     logger.info(

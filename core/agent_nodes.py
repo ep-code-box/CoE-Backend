@@ -3,7 +3,7 @@
 """
 import json
 import uuid
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Union
 
 from core.schemas import AgentState, Tool
 from core.llm_client import get_client_for_model, client as default_llm_client
@@ -49,22 +49,66 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     combined_tool_schemas = [t if isinstance(t, dict) else t.model_dump(exclude_none=True) for t in resolved_tools]
 
     auto_route_suggestion = None
-    forced_tool_choice: Optional[Dict[str, Any]] = None
+    forced_tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+    skip_auto_routing = False
+
+    def _normalize_tool_choice(choice: Dict[str, Any]) -> Dict[str, Any]:
+        """Bring various client tool_choice shapes into the OpenAI-compatible schema."""
+        try:
+            if not isinstance(choice, dict):
+                return choice
+            normalized: Dict[str, Any] = dict(choice)
+            fn = normalized.get("function")
+            if isinstance(fn, dict) and isinstance(fn.get("name"), str):
+                normalized.setdefault("type", "function")
+                return normalized
+
+            candidate_name = None
+            for key in ("name", "tool_name", "id"):
+                value = normalized.get(key)
+                if isinstance(value, str) and value.strip():
+                    candidate_name = value.strip()
+                    break
+            if candidate_name:
+                return {"type": "function", "function": {"name": candidate_name}}
+        except Exception:
+            pass
+        return choice
+
+    client_tool_choice = state.get("requested_tool_choice")
+    if isinstance(client_tool_choice, dict):
+        forced_tool_choice = _normalize_tool_choice(client_tool_choice)
+        skip_auto_routing = True
+    elif isinstance(client_tool_choice, str):
+        normalized_choice = client_tool_choice.strip().lower()
+        if normalized_choice == "none":
+            forced_tool_choice = "none"
+            skip_auto_routing = True
+        elif normalized_choice in {"auto", ""}:
+            pass
+        else:
+            # Unknown directive; treat as explicit tool name for compatibility
+            forced_tool_choice = {
+                "type": "function",
+                "function": {"name": client_tool_choice},
+            }
+            skip_auto_routing = True
 
     # 자동 라우팅(설명 기반/LLM 기반): 최근 사용자 메시지를 분석하여 사전 선택한 도구를 제안
-    try:
-        last_user = None
-        for msg in reversed(history):
-            if (isinstance(msg, dict) and msg.get("role") == "user") or getattr(msg, "role", None) == "user":
-                last_user = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
-                break
-        if last_user:
-            # Evaluate tools via strategy (LLM intent by default, fallback to text)
-            auto_route_suggestion = await tool_dispatcher.maybe_execute_best_tool(
-                last_user, context, state
-            )
-    except Exception as e:
-        logger.warning(f"Auto-routing check failed: {e}")
+    if not skip_auto_routing:
+        try:
+            last_user = None
+            for msg in reversed(history):
+                if (isinstance(msg, dict) and msg.get("role") == "user") or getattr(msg, "role", None) == "user":
+                    last_user = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+                    break
+            if last_user:
+                # Evaluate tools via strategy (LLM intent by default, fallback to text)
+                auto_route_suggestion = await tool_dispatcher.maybe_execute_best_tool(
+                    last_user, context, state
+                )
+        except Exception as e:
+            logger.warning(f"Auto-routing check failed: {e}")
 
     # LLM 클라이언트 선택
     llm_client = get_client_for_model(model_id)
@@ -134,6 +178,9 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
             llm_kwargs["tool_choice"] = forced_tool_choice
         else:
             llm_kwargs["tool_choice"] = "auto"
+    elif forced_tool_choice is not None:
+        # Explicit directive even without tool schemas (e.g., malformed client choice)
+        llm_kwargs["tool_choice"] = forced_tool_choice
 
     response = await llm_client.chat.completions.create(**llm_kwargs)
     response_message = response.choices[0].message
