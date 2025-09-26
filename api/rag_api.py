@@ -71,6 +71,16 @@ class SearchRequestPayload(BaseModel):
     group_name: Optional[str] = None
 
 
+class EmbedContentPayload(BaseModel):
+    """Arbitrary content ingestion request."""
+
+    source_type: str = Field(..., description="Type of content: text, file, or url")
+    source_data: str = Field(..., description="Content payload or reference")
+    group_name: Optional[str] = Field(default=None, description="Group name to bucket embeddings")
+    title: Optional[str] = Field(default=None, description="Optional title for the content")
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata to store")
+
+
 async def _proxy_request(
     method: str,
     path: str,
@@ -152,6 +162,17 @@ async def ingest_rdb_schema() -> Dict[str, Any]:
     """Trigger RDB schema ingestion on the RAG pipeline."""
 
     result = await _proxy_request("POST", "/api/v1/ingest_rdb_schema")
+    if not isinstance(result, dict):
+        raise HTTPException(status_code=502, detail="Unexpected response shape from RAG pipeline")
+    return result
+
+
+@router.post("/embed-content")
+async def embed_content(request: EmbedContentPayload) -> Dict[str, Any]:
+    """Proxy arbitrary content embedding requests to the RAG pipeline."""
+
+    payload = request.model_dump(exclude_none=True)
+    result = await _proxy_request("POST", "/api/v1/embed-content", payload=payload)
     if not isinstance(result, dict):
         raise HTTPException(status_code=502, detail="Unexpected response shape from RAG pipeline")
     return result
