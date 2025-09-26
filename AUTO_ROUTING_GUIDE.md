@@ -5,14 +5,14 @@
 **High‑Level Flow**
 - Client hits `POST /v1/chat/completions` → `api/chat_api.py` builds `AgentState` and calls agent.
 - Agent node `core/agent_nodes.py::tool_dispatcher_node` tries auto‑routing first, then falls back to normal tool calling.
-- Auto‑routing core lives in `services/tool_dispatcher.py`:
-  - Description/text strategy picks a candidate (Python Tool or LangFlow).
-  - LLM strategy: model sees candidates and returns one pick as JSON.
-  - If Python Tool is picked, the LLM generates arguments strictly from the tool JSON schema.
-  - If LangFlow is picked, the flow runs via `services/langflow/langflow_service.py` and its output is parsed into clean text.
+- Auto-routing core lives in `services/tool_dispatcher.py`:
+  - Description/text and LLM strategies now return **suggestions** rather than executing tools directly.
+  - Suggestions capture the tool name, optional flow metadata, and recommended arguments.
+  - `core/agent_nodes.py` injects a one-off system hint and forces the primary LLM to issue the actual `tool_call`, preserving the canonical tool-request trace.
 
 **Design Principles**
-- LLM‑first arguments: Do NOT regex‑parse user text for tool args. Let the LLM infer arguments from the tool’s JSON schema.
+- LLM-first arguments: Do NOT regex-parse user text for tool args. Let the LLM infer arguments from the tool’s JSON schema.
+- Preserve tool requests: even when auto-routing fires, the final `tool_call` must originate from the LLM so clients see a consistent history.
 - Natural output: Never return raw dumps to end users. Show the essential human‑readable message only.
 - Separation of concerns: Tools compute; dispatchers orchestrate; formatters shape the final message.
 - Reversible routing: `AUTO_ROUTE_STRATEGY` controls whether auto‑routing is used (see Configuration).
@@ -20,9 +20,7 @@
 **Key Modules**
 - `services/tool_dispatcher.py`
   - `_format_flow_outputs_for_chat(outputs)`: extracts a single natural message from LangFlow results (no raw).
-  - `_format_tool_result_for_chat(result)`: reads `{"messages":[{"role":"assistant","content":"..."}]}` and returns content.
-  - `_llm_generate_tool_arguments(schema, user_text)`: asks the LLM to produce a strict JSON arguments object from the tool’s JSON schema. No regex.
-  - `maybe_execute_best_tool_by_description(...)` and `maybe_execute_best_tool_by_llm(...)`: choose and execute one candidate; always format via the helpers above.
+  - `maybe_execute_best_tool_by_description(...)` / `maybe_execute_best_tool_by_llm(...)`: return structured suggestions (`tool_name`, optional `arguments`, flow metadata) without executing the tool.
 - `services/langflow/langflow_service.py`
   - Executes LangFlow graphs across versions, normalizes outputs, and returns `ExecuteFlowResponse`.
   - Avoids exposing `raw` to end users; dispatcher formats final text.
@@ -64,7 +62,7 @@
 **When Extending**
 - New tool: define a clear JSON schema with required fields; keep `run` pure; return messages shape.
 - New LangFlow flow: ensure descriptions are meaningful for candidate selection; rely on dispatcher formatting.
-- Changing models: if argument inference becomes flaky, consider upgrading `AUTO_ROUTE_MODEL` or tightening the system prompt in `_llm_generate_tool_arguments`.
+- Changing models: if argument inference becomes flaky, revisit tool descriptions/JSON schemas or upgrade `AUTO_ROUTE_MODEL` so the forced tool call still succeeds.
 
 **Quick Tests**
 - LangFlow path: ask a flow‑intent query → response should be a clean sentence (no raw).

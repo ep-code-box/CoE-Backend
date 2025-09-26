@@ -4,7 +4,7 @@ Front-end에서 요청된 도구를 찾아 실행하고, 그 결과를 반환하
 import os
 import sys
 import importlib.util
-from typing import Dict, Any, Optional, List, Tuple, Callable, Set
+from typing import Dict, Any, Optional, List, Tuple, Callable, Set, Literal, TypedDict
 import re
 import logging
 import httpx
@@ -27,6 +27,17 @@ AUTO_ROUTE_MAX_CANDIDATES = int(os.getenv("AUTO_ROUTE_MAX_CANDIDATES", "16"))
 AUTO_ROUTE_MAX_DESC_CHARS = int(os.getenv("AUTO_ROUTE_MAX_DESC_CHARS", "512"))
 AUTO_ROUTE_LLM_FALLBACK = os.getenv("AUTO_ROUTE_LLM_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
 ENABLE_GROUP_FILTERING = os.getenv("ENABLE_GROUP_FILTERING", "true").lower() in {"1", "true", "yes", "on"}
+
+
+class AutoRouteSuggestion(TypedDict, total=False):
+    tool_name: str
+    tool_type: Literal["python", "flow"]
+    source: Literal["llm", "description"]
+    arguments: Dict[str, Any]
+    reason: str
+    flow_name: str
+    flow_id: str
+    score: int
 
 def _extract_text_from_raw_string(s: str) -> Optional[str]:
     """Heuristically extract a natural-language message from a raw LangFlow repr string.
@@ -789,9 +800,10 @@ def _flow_allowed_in_context(
 
 async def maybe_execute_best_tool_by_description(
     user_text: str, context: Optional[str], state: "AgentState"
-) -> Optional[Dict[str, Any]]:
-    """Evaluate both Python tools and LangFlow flows using the same description-matching rule,
-    pick the highest scoring candidate, and execute it. Logs info-level reasons for skips.
+) -> Optional[AutoRouteSuggestion]:
+    """Evaluate both Python tools and LangFlow flows using the same description-matching rule.
+
+    Returns an auto-routing suggestion instead of executing the tool immediately.
     """
     if not user_text:
         logger.info("[AUTO-ROUTE] Skip: empty user_text")
@@ -808,7 +820,6 @@ async def maybe_execute_best_tool_by_description(
     # 1) Evaluate Python tools in context
     py_candidates: List[Tuple[int, str, Callable, str]] = []  # (score, name, fn, matched_kw)
     schemas, functions = get_available_tools_for_context(ctx, group_name, apply_filters)
-    py_schema_index: Dict[str, Dict[str, Any]] = {}
     logger.info(f"[AUTO-ROUTE] Evaluating Python tools for context='{ctx}' (count={len(schemas)})")
     for sch in schemas:
         try:
@@ -818,8 +829,6 @@ async def maybe_execute_best_tool_by_description(
             if not name:
                 logger.info("[AUTO-ROUTE][PY] Skip: schema has no function name")
                 continue
-            if isinstance(sch, dict):
-                py_schema_index[name] = sch
             if not desc:
                 logger.info(f"[AUTO-ROUTE][PY] Skip '{name}': no description")
                 continue
@@ -911,48 +920,40 @@ async def maybe_execute_best_tool_by_description(
     source, score, matched_kw, payload = best
     logger.info(f"[AUTO-ROUTE] Selected '{source}' candidate with score={score}, kw='{matched_kw}'")
 
-    # 4) Execute selected candidate
     if source == "python":
-        name, fn = payload
-        try:
-            # Let the LLM infer arguments for the selected tool using its schema
-            args = await _llm_generate_tool_arguments(py_schema_index.get(name) or {}, utext)
-            result = await fn(args, state)
-            content = _format_tool_result_for_chat(result)
-        except Exception as e:
-            content = f"도구 실행 중 오류가 발생했습니다: {e}"
-        return {"role": "assistant", "content": content}
+        name, _ = payload
+        return {
+            "tool_name": name,
+            "tool_type": "python",
+            "source": "description",
+            "reason": matched_kw or "",
+            "score": score,
+        }
 
-    # Flow
     flow: LangFlow = payload
-    flow_data = LangFlowService.get_flow_data_as_dict(flow)
-    # Provide a broad set of common input aliases used across flows
-    inputs = {
-        "input_value": user_text,
-        "message": user_text,
-        "input": user_text,
-        "text": user_text,
-        "chat_input": user_text,
-        "user_question": user_text,
-        "prompt": user_text,
+    flow_name = getattr(flow, "name", None)
+    if not flow_name:
+        logger.info("[AUTO-ROUTE][FLOW] Selected flow has no name; skipping suggestion")
+        return None
+    return {
+        "tool_name": "execute_langflow",
+        "tool_type": "flow",
+        "source": "description",
+        "reason": matched_kw or "",
+        "score": score,
+        "flow_name": flow_name,
+        "flow_id": getattr(flow, "flow_id", None),
+        "arguments": {"flow_name": flow_name},
     }
-    exec_result = await langflow_service.execute_flow(flow_data, inputs)
-
-    if exec_result.success:
-        outputs = exec_result.outputs or {}
-        content = _format_flow_outputs_for_chat(outputs)
-    else:
-        content = f"LangFlow 실행 중 오류가 발생했습니다: {exec_result.error}"
-    return {"role": "assistant", "content": content}
 
 
 async def maybe_execute_best_tool_by_llm(
     user_text: str, context: Optional[str], state: "AgentState"
-) -> Optional[Dict[str, Any]]:
+) -> Optional[AutoRouteSuggestion]:
     """Use LLM intent analysis to pick the best tool/flow.
 
-    Prompts the LLM with user_text and candidate list to choose one.
-    Returns assistant message with execution result, or None if no suitable tool.
+    Prompts the LLM with user_text and candidate list to choose one, returning an
+    auto-routing suggestion when the model selects a candidate.
     """
     if not user_text:
         logger.info("[AUTO-ROUTE][LLM] Skip: empty user_text")
@@ -966,9 +967,9 @@ async def maybe_execute_best_tool_by_llm(
     apply_filters = ENABLE_GROUP_FILTERING
 
     # Collect Python tool candidates
-    schemas, functions = get_available_tools_for_context(ctx, group_name, apply_filters)
+    schemas, _functions = get_available_tools_for_context(ctx, group_name, apply_filters)
     py_candidates: List[Dict[str, str]] = []
-    py_schema_index: Dict[str, Dict[str, Any]] = {}
+    python_names: Set[str] = set()
     for sch in schemas:
         try:
             func = sch.get("function", {}) if isinstance(sch, dict) else {}
@@ -976,12 +977,11 @@ async def maybe_execute_best_tool_by_llm(
             desc = func.get("description") or sch.get("description")
             if not name or not desc:
                 continue
-            if isinstance(sch, dict):
-                py_schema_index[name] = sch
             d = str(desc)
             if len(d) > AUTO_ROUTE_MAX_DESC_CHARS:
                 d = d[:AUTO_ROUTE_MAX_DESC_CHARS] + "…"
             py_candidates.append({"type": "python", "name": name, "description": d})
+            python_names.add(name)
         except Exception:
             continue
 
@@ -1076,33 +1076,28 @@ async def maybe_execute_best_tool_by_llm(
         logger.info(f"[AUTO-ROUTE][LLM] Picked type='{ptype}' name='{pname}'")
 
         if ptype == "python":
-            fn = functions.get(pname)
-            if not fn:
+            if pname not in python_names:
                 logger.info(f"[AUTO-ROUTE][LLM] Picked python tool not found: {pname}")
                 return None
-            try:
-                # Ask LLM to produce arguments according to the tool schema
-                args = await _llm_generate_tool_arguments(py_schema_index.get(pname) or {}, user_text)
-                result = await fn(args, state)
-                msg = _format_tool_result_for_chat(result)
-            except Exception as e:
-                msg = f"도구 실행 중 오류가 발생했습니다: {e}"
-            return {"role": "assistant", "content": msg}
+            return {
+                "tool_name": pname,
+                "tool_type": "python",
+                "source": "llm",
+            }
 
         if ptype == "flow":
             fl = flow_index.get(pname)
             if not fl:
                 logger.info(f"[AUTO-ROUTE][LLM] Picked flow not found: {pname}")
                 return None
-            flow_data = LangFlowService.get_flow_data_as_dict(fl)
-            inputs = {"input_value": user_text, "message": user_text}
-            exec_result = await langflow_service.execute_flow(flow_data, inputs)
-            if exec_result.success:
-                outputs = exec_result.outputs or {}
-                msg = _format_flow_outputs_for_chat(outputs)
-            else:
-                msg = f"LangFlow 실행 중 오류가 발생했습니다: {exec_result.error}"
-            return {"role": "assistant", "content": msg}
+            return {
+                "tool_name": "execute_langflow",
+                "tool_type": "flow",
+                "source": "llm",
+                "flow_name": pname,
+                "flow_id": getattr(fl, "flow_id", None),
+                "arguments": {"flow_name": pname},
+            }
 
         logger.info(f"[AUTO-ROUTE][LLM] Unknown pick type: {ptype}")
         return None
@@ -1113,7 +1108,7 @@ async def maybe_execute_best_tool_by_llm(
 
 async def maybe_execute_best_tool(
     user_text: str, context: Optional[str], state: "AgentState"
-) -> Optional[Dict[str, Any]]:
+) -> Optional[AutoRouteSuggestion]:
     """Strategy switch for auto-routing.
 
     AUTO_ROUTE_STRATEGY=llm|text (default llm). Falls back to text if LLM returns None.

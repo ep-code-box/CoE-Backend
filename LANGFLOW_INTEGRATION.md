@@ -115,8 +115,8 @@
 
 - 자동 라우팅(선제 실행)은 `services/tool_dispatcher.py`에 구현되어 있습니다.
   - Python 도구/Flow 후보를 컨텍스트 기준으로 수집하고, LLM/텍스트 전략으로 하나를 선택합니다.
-  - Python 도구가 선택된 경우, 도구 JSON 스키마를 LLM에 제시하여 arguments(JSON)만 생성하도록 합니다(정규식 금지).
-  - LangFlow가 선택된 경우, 내부 실행 후 최종 텍스트만 추출해 반환합니다(raw 노출 금지).
+  - Python 도구가 선택되면 에이전트가 메인 LLM에게 해당 도구를 강제 `tool_call` 하도록 지시합니다. arguments는 도구 JSON 스키마에 따라 메인 LLM이 추론합니다.
+  - LangFlow가 선택되면 동일하게 `execute_langflow` 툴 호출을 강제하고, `flow_name` 등 기본 인자를 제안하여 실행합니다(raw 노출 금지).
 - 사용자 출력은 자연어 문장만 반환하도록 정리되었습니다(상태 배너/JSON 덤프 제거).
 - 구성 변수:
   - `AUTO_ROUTE_STRATEGY=llm|text|off`, `AUTO_ROUTE_MODEL=gpt-4o-mini`(기본)

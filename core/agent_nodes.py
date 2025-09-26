@@ -3,7 +3,7 @@
 """
 import json
 import uuid
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Set
 
 from core.schemas import AgentState, Tool
 from core.llm_client import get_client_for_model, client as default_llm_client
@@ -48,7 +48,10 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     # Pydantic 모델을 dict로 변환
     combined_tool_schemas = [t if isinstance(t, dict) else t.model_dump(exclude_none=True) for t in resolved_tools]
 
-    # 자동 라우팅(설명 기반): 최근 사용자 메시지에서 키워드 매칭 시 플로우 실행
+    auto_route_suggestion = None
+    forced_tool_choice: Optional[Dict[str, Any]] = None
+
+    # 자동 라우팅(설명 기반/LLM 기반): 최근 사용자 메시지를 분석하여 사전 선택한 도구를 제안
     try:
         last_user = None
         for msg in reversed(history):
@@ -57,25 +60,80 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
                 break
         if last_user:
             # Evaluate tools via strategy (LLM intent by default, fallback to text)
-            auto_msg = await tool_dispatcher.maybe_execute_best_tool(last_user, context, state)
-            if auto_msg is not None:
-                history.append(auto_msg)
-                return {"history": history}
+            auto_route_suggestion = await tool_dispatcher.maybe_execute_best_tool(
+                last_user, context, state
+            )
     except Exception as e:
         logger.warning(f"Auto-routing check failed: {e}")
 
     # LLM 클라이언트 선택
     llm_client = get_client_for_model(model_id)
 
+    # LLM 호출 메시지 구성 (필요 시 자동 라우터 힌트 추가)
+    messages_for_llm: List[Dict[str, Any]] = list(history)
+
+    available_tool_names: Set[str] = set()
+    for schema in combined_tool_schemas:
+        try:
+            fn = (schema.get("function") if isinstance(schema, dict) else {}) or {}
+            name = fn.get("name")
+            if name:
+                available_tool_names.add(name)
+        except Exception:
+            continue
+
+    if auto_route_suggestion:
+        suggested_tool = auto_route_suggestion.get("tool_name")
+        if suggested_tool and suggested_tool in available_tool_names:
+            forced_tool_choice = {"type": "function", "function": {"name": suggested_tool}}
+            instruction_lines = [
+                "Auto router selected a tool for this request.",
+                f"Tool: {suggested_tool}",
+                "You must call this tool once before producing a final reply.",
+            ]
+            reason = auto_route_suggestion.get("reason")
+            if reason:
+                instruction_lines.append(f"Selection hint: matched keyword '{reason}'.")
+            if auto_route_suggestion.get("tool_type") == "flow":
+                flow_name = auto_route_suggestion.get("flow_name")
+                if flow_name:
+                    instruction_lines.append(
+                        f"Execute LangFlow '{flow_name}' via execute_langflow."
+                    )
+            suggested_args = auto_route_suggestion.get("arguments")
+            if suggested_args:
+                try:
+                    instruction_lines.append(
+                        "Use the following JSON arguments for the call: "
+                        + json.dumps(suggested_args, ensure_ascii=False)
+                    )
+                except Exception:
+                    pass
+            instruction_lines.append("After the tool call, summarize the result for the user.")
+            messages_for_llm.append({"role": "system", "content": "\n".join(instruction_lines)})
+            logger.info(
+                "Auto-router suggestion accepted: tool=%s source=%s",
+                suggested_tool,
+                auto_route_suggestion.get("source"),
+            )
+        elif suggested_tool:
+            logger.info(
+                "Auto-router suggestion skipped because tool '%s' is not in the available tool list.",
+                suggested_tool,
+            )
+
     logger.info(
         f"--- Calling LLM with {len(combined_tool_schemas)} tools for context '{context}' ---"
     )
 
     # tools/tool_choice에 None을 넣지 않도록 kwargs 동적 구성
-    llm_kwargs = dict(model=model_id, messages=history)
+    llm_kwargs = dict(model=model_id, messages=messages_for_llm)
     if combined_tool_schemas:
         llm_kwargs["tools"] = combined_tool_schemas
-        llm_kwargs["tool_choice"] = "auto"
+        if forced_tool_choice is not None:
+            llm_kwargs["tool_choice"] = forced_tool_choice
+        else:
+            llm_kwargs["tool_choice"] = "auto"
 
     response = await llm_client.chat.completions.create(**llm_kwargs)
     response_message = response.choices[0].message
