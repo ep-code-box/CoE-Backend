@@ -26,6 +26,8 @@ from core.llm_client import get_client_for_model, get_model_info
 from core.database import get_db
 from services.chat_service import get_chat_service, ChatService
 from services.pii_service import scrub_text
+
+PII_BLOCK_MESSAGE = "고객 정보 또는 민감한 데이터가 확인되었습니다. 다시 질문 부탁드립니다."
 from utils.streaming_utils import agent_stream_generator, proxy_stream_generator
 
 # (선택) OpenAI SDK BadRequest 패스스루용
@@ -203,6 +205,43 @@ async def handle_agent_request(
             ",".join(sorted({hit["type"] for hit in pii_hits})),
         )
 
+    logger.info(
+        "[CHAT][REQUEST] session=%s context=%s group=%s model=%s user=%s",
+        current_session_id,
+        req.context or "",
+        req.group_name or "",
+        req.model,
+        _shorten_for_log(masked_user_content),
+    )
+
+    if pii_hits:
+        final_message_content = PII_BLOCK_MESSAGE
+        final_message_dict = {"role": "assistant", "content": final_message_content}
+        await _log_and_save_messages(
+            chat_service,
+            current_session_id,
+            masked_user_content,
+            final_message_content,
+            session,
+            start_time,
+            req,
+            200,
+        )
+        if req.stream:
+            return StreamingResponse(
+                agent_stream_generator(req.model, final_message_dict, current_session_id),
+                media_type="text/event-stream",
+            )
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "session_id": current_session_id,
+        }
+
     # 1) context 기반 서버 도구 스키마 로드
     server_schemas: List[Any] = []
     try:
@@ -237,15 +276,6 @@ async def handle_agent_request(
         context=req.context, # UI 컨텍스트: 에이전트 내부 분기/로깅에 활용
         tools=resolved_tools,
         requested_tool_choice=req.tool_choice,
-    )
-
-    logger.info(
-        "[CHAT][REQUEST] session=%s context=%s group=%s model=%s user=%s",
-        current_session_id,
-        req.context or "",
-        req.group_name or "",
-        req.model,
-        _shorten_for_log(masked_user_content),
     )
 
     try:
@@ -417,6 +447,34 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         req.model,
         _shorten_for_log(masked_user_content),
     )
+
+    if rag_pii_hits:
+        final_message_content = PII_BLOCK_MESSAGE
+        final_message_dict = {"role": "assistant", "content": final_message_content}
+        await _log_and_save_messages(
+            chat_service,
+            current_session_id,
+            masked_user_content,
+            final_message_content,
+            session,
+            start_time,
+            req,
+            200,
+        )
+        if req.stream:
+            return StreamingResponse(
+                agent_stream_generator(req.model, final_message_dict, current_session_id),
+                media_type="text/event-stream",
+            )
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "session_id": current_session_id,
+        }
 
     user_query = current_user_content
     retrieved_documents: List[Dict[str, Any]] = []
