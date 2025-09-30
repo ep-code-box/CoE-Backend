@@ -18,6 +18,7 @@ from api.rag_api import router as rag_router
 from core.database import init_database
 from core.lifespan import lifespan
 from core.logging_config import LOGGING_CONFIG
+from services.pii_service import scrub_text
 
 
 class AppFactory:
@@ -153,9 +154,19 @@ class AppFactory:
                 try:
                     body = await request.body()
                     if body:
+                        decoded = body.decode("utf-8", errors="replace")
+                        masked_body, body_hits = scrub_text(decoded)
+                        snippet = masked_body[:500]
+                        suffix = "..." if len(masked_body) > 500 else ""
                         logging.info(
-                            f"📝 {request.method} {request.url.path} body: {body.decode('utf-8')[:500]}..."
+                            f"📝 {request.method} {request.url.path} body: {snippet}{suffix}"
                         )
+                        if body_hits:
+                            logging.info(
+                                "[PII] path=%s masked_types=%s",
+                                request.url.path,
+                                ",".join(sorted({hit["type"] for hit in body_hits})),
+                            )
                 except Exception as e:
                     logging.warning(f"⚠️ Could not read request body: {e}")
 

@@ -25,6 +25,7 @@ from core.schemas import OpenAIChatRequest, AgentState
 from core.llm_client import get_client_for_model, get_model_info
 from core.database import get_db
 from services.chat_service import get_chat_service, ChatService
+from services.pii_service import scrub_text
 from utils.streaming_utils import agent_stream_generator, proxy_stream_generator
 
 # (선택) OpenAI SDK BadRequest 패스스루용
@@ -194,6 +195,14 @@ async def handle_agent_request(
         req, chat_service, request
     )
 
+    masked_user_content, pii_hits = scrub_text(current_user_content)
+    if pii_hits:
+        logger.info(
+            "[PII] session=%s masked_types=%s",
+            current_session_id,
+            ",".join(sorted({hit["type"] for hit in pii_hits})),
+        )
+
     # 1) context 기반 서버 도구 스키마 로드
     server_schemas: List[Any] = []
     try:
@@ -236,7 +245,7 @@ async def handle_agent_request(
         req.context or "",
         req.group_name or "",
         req.model,
-        _shorten_for_log(current_user_content),
+        _shorten_for_log(masked_user_content),
     )
 
     try:
@@ -257,7 +266,7 @@ async def handle_agent_request(
         await _log_and_save_messages(
             chat_service,
             current_session_id,
-            current_user_content,
+            masked_user_content,
             final_message_content,
             session,
             start_time,
@@ -286,7 +295,7 @@ async def handle_agent_request(
         logger.error("에이전트 실행 중 예외 발생: %s: %s", type(e).__name__, error_message, exc_info=True)
 
         await _log_and_save_messages(
-            chat_service, current_session_id, current_user_content, "", session, start_time, req, 500, error_message
+            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
         )
 
         raise HTTPException(status_code=500, detail=f"에이전트 실행 오류: {error_message}")
@@ -392,13 +401,21 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         req, chat_service, request
     )
 
+    masked_user_content, rag_pii_hits = scrub_text(current_user_content)
+    if rag_pii_hits:
+        logger.info(
+            "[PII] session=%s masked_types=%s",
+            current_session_id,
+            ",".join(sorted({hit["type"] for hit in rag_pii_hits})),
+        )
+
     logger.info(
         "[CHAT][RAG REQUEST] session=%s context=%s group=%s model=%s user=%s",
         current_session_id,
         req.context or "",
         req.group_name or "",
         req.model,
-        _shorten_for_log(current_user_content),
+        _shorten_for_log(masked_user_content),
     )
 
     user_query = current_user_content
@@ -416,21 +433,21 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         error_message = f"RAG 서비스 호출 실패: {e}"
         logger.error(error_message, exc_info=True)
         await _log_and_save_messages(
-            chat_service, current_session_id, current_user_content, "", session, start_time, req, 500, error_message
+            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
         )
         raise HTTPException(status_code=500, detail=error_message)
     except httpx.HTTPStatusError as e:
         error_message = f"RAG 서비스 응답 오류: {e.response.status_code} - {e.response.text}"
         logger.error(error_message, exc_info=True)
         await _log_and_save_messages(
-            chat_service, current_session_id, current_user_content, "", session, start_time, req, 500, error_message
+            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
         )
         raise HTTPException(status_code=500, detail=error_message)
     except Exception as e:
         error_message = f"RAG 처리 중 알 수 없는 오류 발생: {e}"
         logger.error(error_message, exc_info=True)
         await _log_and_save_messages(
-            chat_service, current_session_id, current_user_content, "", session, start_time, req, 500, error_message
+            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
         )
         raise HTTPException(status_code=500, detail=error_message)
 
@@ -480,7 +497,14 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
             final_message_content = final_message_dict.get("content", "")
 
             await _log_and_save_messages(
-                chat_service, current_session_id, current_user_content, final_message_content, session, start_time, req, 200
+                chat_service,
+                current_session_id,
+                masked_user_content,
+                final_message_content,
+                session,
+                start_time,
+                req,
+                200,
             )
 
             return {
@@ -500,7 +524,7 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         logger.error("RAG LLM 호출 오류: %s: %s", type(e).__name__, error_message, exc_info=True)
 
         await _log_and_save_messages(
-            chat_service, current_session_id, current_user_content, "", session, start_time, req, 500, error_message
+            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
         )
 
         raise HTTPException(status_code=500, detail=f"RAG LLM 호출 오류: {error_message}")

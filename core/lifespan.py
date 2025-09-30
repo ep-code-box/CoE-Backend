@@ -4,6 +4,7 @@ from fastapi import FastAPI
 # Import services
 from services.flow_router_service import FlowRouterService
 from services.scheduler_service import SchedulerService
+from services.pii_service import initialize_pid, terminate_pid
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,6 +25,9 @@ async def lifespan(app: FastAPI):
     # 3. Perform initial sync and start the background scheduler
     scheduler_service.sync_routes_from_db()
     scheduler_service.start()
+
+    # 4. Initialize PID resources once per process
+    initialize_pid()
     
     print("--- Startup complete ---")
     
@@ -32,4 +36,5 @@ async def lifespan(app: FastAPI):
     # --- Shutdown Logic ---
     print("--- Running shutdown events via lifespan manager ---")
     scheduler_service.stop()
+    terminate_pid()
     print("--- Shutdown complete ---")

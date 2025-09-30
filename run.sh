@@ -5,6 +5,15 @@
 
 set -e  # 에러 발생 시 스크립트 중단
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PID_WHEEL_PATH="$SCRIPT_DIR/vendor/pidpy/pidpy-1.3.19-py3-none-linux_x86_64.whl"
+PID_SOURCE_PATH="$SCRIPT_DIR/../docs/pid-1.3.19/pidpy-1.3.19-py3-none-linux_x86_64.whl"
+
+if [ ! -f "$PID_WHEEL_PATH" ] && [ -f "$PID_SOURCE_PATH" ]; then
+    mkdir -p "$(dirname "$PID_WHEEL_PATH")"
+    cp "$PID_SOURCE_PATH" "$PID_WHEEL_PATH"
+fi
+
 VENV_DIR="./.venv"
 ENV_FILE="./.env"
 
@@ -64,6 +73,26 @@ if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     echo "✅ 의존성 설치/업데이트 완료"
 elif [ -f "$INSTALLED_MARKER" ]; then
     echo "✅ 의존성 이미 설치됨 (requirements.in 변경 없음)"
+fi
+
+# pidpy 로컬 휠 설치 (존재 시)
+if [ -f "$PID_WHEEL_PATH" ]; then
+    if [ "$(uname -s)" != "Linux" ]; then
+        echo "⚠️  pidpy 로컬 휠은 Linux 전용입니다. macOS/Windows에서는 별도 설치 경로를 사용하세요."
+    elif ! python - <<'PY' >/dev/null 2>&1
+import importlib
+spec = importlib.util.find_spec("pidpy")
+raise SystemExit(0 if spec else 1)
+PY
+    then
+        echo "📦 pidpy 로컬 휠 설치 중..."
+        pip install "$PID_WHEEL_PATH"
+        echo "✅ pidpy 설치 완료"
+    else
+        echo "✅ pidpy 이미 설치됨"
+    fi
+else
+    echo "⚠️  pidpy 휠을 찾을 수 없습니다: $PID_WHEEL_PATH"
 fi
 
 # 데이터베이스 연결 대기 함수
