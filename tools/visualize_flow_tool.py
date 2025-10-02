@@ -1,7 +1,10 @@
 import json
 from typing import Dict, Any, List, Optional
 from core.schemas import AgentState
-from core.llm_client import get_client_for_model # LLM 호출을 위해 추가
+from core.llm_client import (
+    get_client_for_model,
+    resolve_effective_model_id,
+)  # LLM 호출을 위해 추가
 
 # 1. 'run' 함수 (필수): 대화 시각화 도구의 실제 로직
 async def run(tool_input: Optional[Dict[str, Any]], state: AgentState) -> str:
@@ -80,11 +83,13 @@ async def generate_langflow_workflow_run(tool_input: Optional[Dict[str, Any]], s
     """
     user_query = tool_input.get("input", "")
     model_id = state.get("model_id") # 에이전트가 사용하는 LLM 모델 사용
+    effective_model_id = resolve_effective_model_id(model_id)
 
     if not user_query:
         return json.dumps({"error": "LangFlow 생성을 위한 요청 내용이 없습니다."})
 
-    llm_client = get_client_for_model(model_id)
+    client_model_id = model_id or effective_model_id
+    llm_client = get_client_for_model(client_model_id)
 
     # LLM에게 LangFlow JSON 생성을 지시하는 시스템 프롬프트
     system_prompt_content = """당신은 LangFlow 워크플로우를 설계하고 JSON으로 출력하는 전문 아키텍트입니다.
@@ -122,7 +127,7 @@ async def generate_langflow_workflow_run(tool_input: Optional[Dict[str, Any]], s
 
     try:
         response = await llm_client.chat.completions.create(
-            model=model_id,
+            model=effective_model_id,
             messages=messages_for_llm,
             response_format={"type": "json_object"}, # JSON 형식 강제
             temperature=0.7 # 창의적인 생성을 위해 temperature를 0.7로 설정

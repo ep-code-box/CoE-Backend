@@ -6,7 +6,7 @@ import uuid
 from typing import Dict, Any, List, Optional, Set, Union
 
 from core.schemas import AgentState, Tool
-from core.llm_client import get_client_for_model, client as default_llm_client
+from core.llm_client import get_client_for_model, resolve_effective_model_id
 from services import tool_dispatcher
 import logging
 
@@ -22,7 +22,7 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     import json
     import uuid
     import logging
-    from core.llm_client import get_client_for_model, client as default_llm_client
+    from core.llm_client import get_client_for_model
     from services import tool_dispatcher
 
     logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     tool_input = state.get("tool_input") or {}
     history = state["history"]
     model_id = state["model_id"]
+    resolved_model_id = resolve_effective_model_id(model_id)
 
     # context를 실행 기준으로 사용
     context = state.get("context") or "default"
@@ -171,7 +172,7 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
     )
 
     # tools/tool_choice에 None을 넣지 않도록 kwargs 동적 구성
-    llm_kwargs = dict(model=model_id, messages=messages_for_llm)
+    llm_kwargs = dict(model=resolved_model_id, messages=messages_for_llm)
     if combined_tool_schemas:
         llm_kwargs["tools"] = combined_tool_schemas
         if forced_tool_choice is not None:
@@ -252,7 +253,10 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
         # 서버 도구가 실행되었고, 클라이언트 도구 호출이 없는 경우에만 LLM을 다시 호출
         if server_tool_executed and not has_client_tool_call:
             logger.info("--- Calling LLM again with server-side tool results ---")
-            second = await default_llm_client.chat.completions.create(model=model_id, messages=history)
+            second = await llm_client.chat.completions.create(
+                model=resolved_model_id,
+                messages=history,
+            )
             history.append(second.choices[0].message.model_dump())
 
     return {"history": history}

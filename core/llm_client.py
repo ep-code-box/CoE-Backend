@@ -18,33 +18,73 @@ if not default_model:
 # 각 프로바이더별로 별도의 클라이언트를 생성하여 올바른 API 키와 엔드포인트를 사용합니다.
 _clients: Dict[str, AsyncOpenAI] = {}
 
+
+def resolve_effective_model_id(model_id: Optional[str]) -> str:
+    """실제 제공자에게 전달할 모델 ID를 반환합니다."""
+
+    if not model_id:
+        return default_model.model_id
+
+    model_info = model_registry.get_model(model_id)
+    if model_info is None:
+        return model_id
+
+    if model_info.provider_model_id:
+        return model_info.provider_model_id
+
+    provider = (model_info.provider or "").lower()
+    if provider == "coe":
+        return default_model.model_id
+
+    return model_id
+
+
 def _create_client_for_provider(model_info: ModelInfo) -> AsyncOpenAI:
     """프로바이더별 OpenAI 클라이언트를 생성합니다."""
-    provider = model_info.provider
+
+    provider_raw = model_info.provider or ""
+    provider = provider_raw.lower()
+
+    if provider == "coe":
+        fallback_id = model_info.provider_model_id
+        if not fallback_id:
+            fallback_model = model_registry.get_default_model()
+            if fallback_model is None:
+                raise ValueError("기본 모델이 없어 CoE 프로바이더를 초기화할 수 없습니다.")
+            fallback_id = fallback_model.model_id
+
+        if fallback_id == model_info.model_id:
+            fallback_model = model_registry.get_default_model()
+            if fallback_model is None or fallback_model.model_id == model_info.model_id:
+                raise ValueError("CoE 프로바이더가 사용할 대체 모델을 찾을 수 없습니다.")
+            fallback_id = fallback_model.model_id
+
+        return get_client_for_model(fallback_id)
+
     if provider == "sktax":
         return AsyncOpenAI(
             base_url=model_info.api_base,
             api_key=os.getenv("SKAX_API_KEY")
         )
-    elif provider == "openai":
+    if provider == "openai":
         return AsyncOpenAI(
             base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
             api_key=os.getenv("OPENAI_API_KEY")
         )
-    elif provider == "anthropic":
+    if provider == "anthropic":
         # Anthropic은 OpenAI 호환 API를 제공하지 않으므로 별도 처리가 필요할 수 있습니다.
         # 현재는 OpenAI 클라이언트로 처리하되, 향후 확장 가능하도록 구조를 유지합니다.
         return AsyncOpenAI(
             base_url=os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com/v1"),
             api_key=os.getenv("ANTHROPIC_API_KEY")
         )
-    elif provider == "local":
+    if provider == "local":
         return AsyncOpenAI(
             base_url=model_info.api_base,
             api_key="dummy_key"  # Local models often don't need an API key
         )
-    else:
-        raise ValueError(f"지원하지 않는 프로바이더입니다: {provider}")
+
+    raise ValueError(f"지원하지 않는 프로바이더입니다: {provider_raw}")
 
 def get_client_for_model(model_id: str) -> AsyncOpenAI:
     """모델 ID에 해당하는 프로바이더의 클라이언트를 반환합니다."""
@@ -52,10 +92,10 @@ def get_client_for_model(model_id: str) -> AsyncOpenAI:
     if not model_info:
         raise ValueError(f"지원하지 않는 모델입니다: {model_id}")
     
-    provider = model_info.provider
+    provider = (model_info.provider or "").lower()
     if provider not in _clients:
         _clients[provider] = _create_client_for_provider(model_info)
-    
+
     return _clients[provider]
 
 def get_model_info(model_id: str) -> Optional[ModelInfo]:

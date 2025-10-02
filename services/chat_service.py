@@ -41,6 +41,8 @@ class ChatService:
             session_data_str = redis_client.get(f"chat_session:{session_id}")
             if session_data_str:
                 session_data = json.loads(session_data_str)
+                # 기본 필드 보장
+                session_data.setdefault("pending_tool_action", None)
                 # 마지막 활동 시간 업데이트
                 session_data["last_activity"] = datetime.utcnow().isoformat()
                 redis_client.set(f"chat_session:{session_id}", json.dumps(session_data))
@@ -56,7 +58,8 @@ class ChatService:
             "max_turns": 3,
             "is_active": True,
             "created_at": datetime.utcnow().isoformat(),
-            "last_activity": datetime.utcnow().isoformat()
+            "last_activity": datetime.utcnow().isoformat(),
+            "pending_tool_action": None,
         }
         redis_client.set(f"chat_session:{new_session_id}", json.dumps(session_data))
         
@@ -143,6 +146,34 @@ class ChatService:
             redis_client.set(f"chat_session:{session_id}", json.dumps(session_data))
             return session_data
         return {} # 세션을 찾을 수 없는 경우 빈 딕셔너리 반환
+
+    def _update_session(self, session_id: str, updater) -> Dict[str, Any]:
+        key = f"chat_session:{session_id}"
+        session_data_str = redis_client.get(key)
+        if not session_data_str:
+            return {}
+        session_data = json.loads(session_data_str)
+        session_data.setdefault("pending_tool_action", None)
+        updater(session_data)
+        session_data["last_activity"] = datetime.utcnow().isoformat()
+        redis_client.set(key, json.dumps(session_data))
+        return session_data
+
+    def set_pending_tool_action(self, session_id: str, action: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        def updater(data: Dict[str, Any]) -> None:
+            data["pending_tool_action"] = action
+        return self._update_session(session_id, updater)
+
+    def clear_pending_tool_action(self, session_id: str) -> Dict[str, Any]:
+        return self.set_pending_tool_action(session_id, None)
+
+    def get_pending_tool_action(self, session_id: str) -> Optional[Dict[str, Any]]:
+        key = f"chat_session:{session_id}"
+        session_data_str = redis_client.get(key)
+        if not session_data_str:
+            return None
+        session_data = json.loads(session_data_str)
+        return session_data.get("pending_tool_action")
     
     def log_api_call(self, session_id: str, endpoint: str, method: str,
                     request_data: Optional[Dict] = None, response_status: Optional[int] = None,

@@ -13,6 +13,7 @@ class ModelInfo(BaseModel):
     is_default: bool = False
     api_base: Optional[str] = None
     model_type: Optional[str] = "chat"
+    provider_model_id: Optional[str] = None
 
 class ModelRegistry:
     """
@@ -72,14 +73,23 @@ class ModelRegistry:
         """기본으로 설정된 모델 정보를 반환합니다."""
         return self._default_model
 
-    def register_model(self, model_id: str, name: str, description: str, provider: str):
+    def register_model(
+        self,
+        model_id: str,
+        name: str,
+        description: str,
+        provider: str,
+        *,
+        provider_model_id: Optional[str] = None,
+    ):
         """런타임에 새로운 모델을 동적으로 등록합니다."""
         if not self.get_model(model_id):
             new_model = ModelInfo(
                 model_id=model_id,
                 name=name,
                 description=description,
-                provider=provider
+                provider=provider,
+                provider_model_id=provider_model_id,
             )
             self._models.append(new_model)
             print(f"✅ 동적 모델 등록 완료: {model_id}")

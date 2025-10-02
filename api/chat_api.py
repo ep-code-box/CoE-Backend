@@ -8,6 +8,7 @@
 - BadRequest는 가능하면 400으로 패스스루, 기타 예외는 500
 """
 
+import os
 import time
 import uuid
 import logging
@@ -29,6 +30,10 @@ from services.pii_service import scrub_text
 
 PII_BLOCK_MESSAGE = "고객 정보 또는 민감한 데이터가 확인되었습니다. 다시 질문 부탁드립니다."
 from utils.streaming_utils import agent_stream_generator, proxy_stream_generator
+from core.guide_agent.agent import GuideAgent
+from core.guide_agent.formatter import format_result_as_markdown
+from core.guide_agent.rag_client import RagClient
+from services import tool_dispatcher
 
 # (선택) OpenAI SDK BadRequest 패스스루용
 try:
@@ -109,6 +114,54 @@ def _merge_tool_schemas(server_schemas: List[Any], client_schemas: Optional[List
         merged[_tool_key_for_merge(t)] = t
     return list(merged.values())
 
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
+
+def _tool_input_dict(tool_input: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if isinstance(tool_input, dict):
+        return tool_input
+    return {}
+
+
+def _should_route_to_guide(req: OpenAIChatRequest) -> bool:
+    context = (req.context or "").lower()
+    if context == "guide":
+        return True
+
+    tool_input = _tool_input_dict(req.tool_input)
+    guide_flags = (
+        tool_input.get("guide_mode"),
+        tool_input.get("guide_agent"),
+            tool_input.get("run_guide"),
+    )
+    return any(_parse_bool(flag) for flag in guide_flags if flag is not None)
+
+
+def _format_tool_execution_message(tool_name: str, result: Any) -> str:
+    try:
+        rendered = json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception:
+        rendered = str(result)
+    message = [
+        f"도구 `{tool_name}` 실행을 완료했습니다.",
+        "",
+        "실행 결과:",
+        "```",
+        rendered,
+        "```",
+        "",
+        "다른 도움이 필요하시면 이어서 요청해주세요.",
+    ]
+    return "\n".join(message)
+
 async def _get_or_create_session_and_history(
     req: OpenAIChatRequest, chat_service: ChatService, request: Request
 ):
@@ -148,13 +201,25 @@ async def _log_and_save_messages(
     req: OpenAIChatRequest,
     response_status: int,
     error_message: str = None,
+    *,
+    selected_tool: Optional[str] = None,
+    tool_execution_time_ms: Optional[int] = None,
+    tool_success: Optional[bool] = None,
+    tool_metadata: Optional[Dict[str, Any]] = None,
 ):
     turn = session["conversation_turns"] + 1
     chat_service.save_chat_message(
         session_id=current_session_id, role="user", content=current_user_content, turn_number=turn
     )
     chat_service.save_chat_message(
-        session_id=current_session_id, role="assistant", content=final_message_content, turn_number=turn
+        session_id=current_session_id,
+        role="assistant",
+        content=final_message_content,
+        turn_number=turn,
+        selected_tool=selected_tool,
+        tool_execution_time_ms=tool_execution_time_ms,
+        tool_success=tool_success,
+        tool_metadata=tool_metadata,
     )
     chat_service.update_session_turns(current_session_id)
 
@@ -171,7 +236,345 @@ async def _log_and_save_messages(
         response_status=response_status,
         response_time_ms=response_time_ms,
         error_message=error_message,
+        selected_tool=selected_tool,
+        tool_execution_time_ms=tool_execution_time_ms,
+        tool_success=tool_success,
+        tool_error_message=error_message,
     )
+
+
+async def _handle_guide_agent_flow(
+    *,
+    req: OpenAIChatRequest,
+    chat_service: ChatService,
+    session: dict,
+    current_session_id: str,
+    masked_user_content: str,
+    current_user_content: str,
+    history_dicts: List[Dict[str, Any]],
+    start_time: float,
+    request: Request,
+) -> Dict[str, Any]:
+    base_url = os.getenv("GUIDE_AGENT_RAG_URL") or os.getenv("RAG_BASE_URL") or "http://coe-ragpipeline-dev:8001"
+
+    tool_input = _tool_input_dict(req.tool_input)
+    confirm = _parse_bool(tool_input.get("guide_confirm"))
+    cancel = _parse_bool(tool_input.get("guide_cancel"))
+
+    context = req.context or ""
+    group_name = req.group_name
+
+    try:
+        server_schemas, server_functions = tool_dispatcher.get_available_tools_for_context(
+            context,
+            group_name,
+        )
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning("Guide flow failed to load server tools: %s", e)
+        server_schemas, server_functions = [], {}
+
+    pending_action = session.get("pending_tool_action")
+
+    if cancel:
+        if pending_action:
+            session = chat_service.clear_pending_tool_action(current_session_id) or session
+            pending_action = None
+            final_message_content = "대기 중이던 도구 실행 요청을 취소했습니다."
+        else:
+            final_message_content = "취소할 대기 중인 도구 실행이 없습니다."
+
+        final_message_dict = {"role": "assistant", "content": final_message_content}
+        history_dicts.append(final_message_dict)
+        await _log_and_save_messages(
+            chat_service,
+            current_session_id,
+            masked_user_content,
+            final_message_content,
+            session,
+            start_time,
+            req,
+            200,
+        )
+
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "session_id": current_session_id,
+        }
+
+    if confirm:
+        if not pending_action:
+            final_message_content = "실행할 대기 중인 도구가 없습니다. 먼저 제안된 도구를 확인한 뒤 다시 요청해주세요."
+            final_message_dict = {"role": "assistant", "content": final_message_content}
+            history_dicts.append(final_message_dict)
+            await _log_and_save_messages(
+                chat_service,
+                current_session_id,
+                masked_user_content,
+                final_message_content,
+                session,
+                start_time,
+                req,
+                200,
+            )
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "session_id": current_session_id,
+            }
+
+        tool_name = pending_action.get("tool_name") if isinstance(pending_action, dict) else None
+        if not tool_name:
+            session = chat_service.clear_pending_tool_action(current_session_id) or session
+            final_message_content = "대기 중인 도구 정보가 잘못되어 실행을 건너뜁니다. 다시 요청해주세요."
+            final_message_dict = {"role": "assistant", "content": final_message_content}
+            history_dicts.append(final_message_dict)
+            await _log_and_save_messages(
+                chat_service,
+                current_session_id,
+                masked_user_content,
+                final_message_content,
+                session,
+                start_time,
+                req,
+                200,
+            )
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "session_id": current_session_id,
+            }
+
+        tool_fn = server_functions.get(tool_name)
+        if not tool_fn:
+            session = chat_service.clear_pending_tool_action(current_session_id) or session
+            final_message_content = f"`{tool_name}` 도구를 현재 컨텍스트에서 찾을 수 없어 실행하지 못했습니다."
+            final_message_dict = {"role": "assistant", "content": final_message_content}
+            history_dicts.append(final_message_dict)
+            await _log_and_save_messages(
+                chat_service,
+                current_session_id,
+                masked_user_content,
+                final_message_content,
+                session,
+                start_time,
+                req,
+                200,
+            )
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req.model,
+                "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "session_id": current_session_id,
+            }
+
+        tool_arguments = pending_action.get("arguments") if isinstance(pending_action, dict) else {}
+        if not isinstance(tool_arguments, dict):
+            tool_arguments = {}
+        override_args = tool_input.get("guide_tool_args") or tool_input.get("tool_arguments")
+        if isinstance(override_args, dict):
+            tool_arguments.update(override_args)
+
+        agent_state: AgentState = AgentState(
+            history=history_dicts,
+            input=current_user_content,
+            mode="guide",
+            scratchpad={},
+            session_id=current_session_id,
+            model_id=req.model,
+            group_name=req.group_name,
+            tool_input=tool_arguments,
+            context=req.context,
+            tools=server_schemas,
+            requested_tool_choice=None,
+        )
+
+        start_exec = time.time()
+        tool_success = False
+        tool_result: Any = {}
+        error_message = None
+
+        try:
+            tool_result = await tool_fn(tool_input=tool_arguments, state=agent_state)
+            tool_success = True
+        except Exception as exc:  # pragma: no cover - tool execution failure
+            logger.exception("Guide tool execution failed: %s", exc)
+            error_message = str(exc)
+        exec_time_ms = int((time.time() - start_exec) * 1000)
+
+        session = chat_service.clear_pending_tool_action(current_session_id) or session
+
+        tool_output_content = json.dumps(tool_result, ensure_ascii=False, indent=2) if tool_success else (error_message or "도구 실행 중 오류가 발생했습니다.")
+        history_dicts.append(
+            {
+                "role": "tool",
+                "name": tool_name,
+                "content": tool_output_content,
+            }
+        )
+
+        if tool_success:
+            final_message_content = _format_tool_execution_message(tool_name, tool_result)
+        else:
+            final_message_content = f"`{tool_name}` 실행 중 오류가 발생했습니다: {error_message or '알 수 없는 오류'}"
+
+        final_message_dict = {"role": "assistant", "content": final_message_content}
+        history_dicts.append(final_message_dict)
+
+        await _log_and_save_messages(
+            chat_service,
+            current_session_id,
+            masked_user_content,
+            final_message_content,
+            session,
+            start_time,
+            req,
+            200 if tool_success else 500,
+            error_message=None if tool_success else error_message,
+            selected_tool=tool_name,
+            tool_execution_time_ms=exec_time_ms,
+            tool_success=tool_success,
+            tool_metadata={"arguments": tool_arguments, "result": tool_result}
+            if tool_success
+            else {"arguments": tool_arguments, "error": error_message},
+        )
+
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "session_id": current_session_id,
+        }
+
+    paths: tuple[str, ...] = ()
+    language = tool_input.get("language")
+    raw_paths = tool_input.get("paths")
+    if isinstance(raw_paths, list):
+        paths = tuple(str(p) for p in raw_paths[:10])
+    elif isinstance(raw_paths, str):
+        paths = tuple(part.strip() for part in raw_paths.split(","))
+
+    profile = tool_input.get("profile")
+    profile = profile or req.group_name or "default"
+    language = language or tool_input.get("locale")
+    language = (language or "ko").lower()
+
+    metadata: Dict[str, Any] = {
+        "context": req.context,
+        "group_name": req.group_name,
+        "request_headers": {"User-Agent": request.headers.get("User-Agent")},
+    }
+
+    async with RagClient(base_url) as rag_client:
+        guide_agent = GuideAgent(rag_client=rag_client)
+        result = await guide_agent.run(
+            prompt=current_user_content,
+            profile=str(profile),
+            language=language,
+            paths=paths,
+            metadata=metadata,
+        )
+
+    final_message_content = format_result_as_markdown(result)
+    suggestion = None
+    try:
+        agent_state_for_suggestion: AgentState = AgentState(
+            history=history_dicts,
+            input=current_user_content,
+            mode="guide",
+            scratchpad={},
+            session_id=current_session_id,
+            model_id=req.model,
+            group_name=req.group_name,
+            tool_input=tool_input,
+            context=req.context,
+            tools=server_schemas,
+            requested_tool_choice=None,
+        )
+        suggestion = await tool_dispatcher.maybe_execute_best_tool(
+            current_user_content,
+            req.context,
+            agent_state_for_suggestion,
+        )
+    except Exception as exc:  # pragma: no cover - auto routing failure
+        logger.info("Guide auto-route suggestion failed: %s", exc)
+
+    if suggestion:
+        tool_name = suggestion.get("tool_name")
+        if tool_name and tool_name in server_functions:
+            action_payload = {
+                "tool_name": tool_name,
+                "tool_type": suggestion.get("tool_type"),
+                "arguments": suggestion.get("arguments") or {},
+                "source": suggestion.get("source"),
+            }
+            session = chat_service.set_pending_tool_action(current_session_id, action_payload) or session
+
+            suggestion_lines = ["", "**권장 도구 실행 안내**"]
+            if suggestion.get("tool_type") == "flow":
+                flow_name = suggestion.get("flow_name") or action_payload["arguments"].get("flow_name")
+                suggestion_lines.append(f"- LangFlow: `{flow_name or tool_name}`")
+            else:
+                suggestion_lines.append(f"- 제안 도구: `{tool_name}`")
+            if suggestion.get("reason"):
+                suggestion_lines.append(f"- 선택 이유: {suggestion['reason']}")
+            suggestion_lines.extend(
+                [
+                    "- 실행하려면 `tool_input.guide_confirm=true` 를 포함해 다시 요청해주세요.",
+                    "- 취소하려면 `tool_input.guide_cancel=true` 를 전달하면 됩니다.",
+                ]
+            )
+            final_message_content += "\n\n" + "\n".join(suggestion_lines)
+        else:
+            if pending_action:
+                session = chat_service.clear_pending_tool_action(current_session_id) or session
+                pending_action = None
+    else:
+        if pending_action:
+            session = chat_service.clear_pending_tool_action(current_session_id) or session
+            pending_action = None
+
+    final_message_dict = {"role": "assistant", "content": final_message_content}
+    history_dicts.append(final_message_dict)
+
+    await _log_and_save_messages(
+        chat_service,
+        current_session_id,
+        masked_user_content,
+        final_message_content,
+        session,
+        start_time,
+        req,
+        200,
+    )
+
+    return {
+        "id": f"chatcmpl-{uuid.uuid4()}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": req.model,
+        "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "session_id": current_session_id,
+    }
 
 
 # -----------------------------
@@ -213,6 +616,24 @@ async def handle_agent_request(
         req.model,
         _shorten_for_log(masked_user_content),
     )
+
+    if _should_route_to_guide(req):
+        logger.info(
+            "[GUIDE] Routing to guide agent | session=%s group=%s",
+            current_session_id,
+            req.group_name or "",
+        )
+        return await _handle_guide_agent_flow(
+            req=req,
+            chat_service=chat_service,
+            session=session,
+            current_session_id=current_session_id,
+            masked_user_content=masked_user_content,
+            current_user_content=current_user_content,
+            history_dicts=history_dicts,
+            start_time=start_time,
+            request=request,
+        )
 
     if pii_hits:
         final_message_content = PII_BLOCK_MESSAGE

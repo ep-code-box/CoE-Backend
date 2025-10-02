@@ -19,11 +19,15 @@ def build_agent_graph():
     # 1. 모델 정보 정의 및 등록
     # TODO: 이 정보를 설정 파일로 분리하는 것을 고려
     AGENT_MODEL_ID = "coe-agent-v2"
+    default_model = model_registry.get_default_model()
+    fallback_model_id = default_model.model_id if default_model else None
+
     model_registry.register_model(
         model_id=AGENT_MODEL_ID,
         name="CoE Agent v2 (MCP)",
         provider="CoE",
-        description="Modal Context Protocol 기반의 차세대 CoE 에이전트"
+        description="Modal Context Protocol 기반의 차세대 CoE 에이전트",
+        provider_model_id=fallback_model_id,
     )
 
     # 2. 새로운 AgentState를 사용하여 그래프를 정의합니다.
