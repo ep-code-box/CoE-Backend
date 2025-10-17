@@ -53,6 +53,16 @@ INSTALLED_MARKER="$VENV_DIR/.installed"
 # requirements.in의 해시값을 저장할 파일
 REQUIREMENTS_HASH_FILE="$VENV_DIR/.requirements_hash"
 
+# 오프라인용 휠 디렉터리 탐지
+WHEEL_DIR="${WHEEL_DIR:-./vendor/wheels}"
+PIP_ARGS=()
+HAS_LOCAL_WHEELS=false
+if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
+    echo "📦 오프라인 휠 디렉터리 감지: $WHEEL_DIR"
+    PIP_ARGS+=(--no-index "--find-links=$WHEEL_DIR")
+    HAS_LOCAL_WHEELS=true
+fi
+
 # 현재 requirements.in의 해시값 계산
 CURRENT_HASH=$(shasum "$REQUIREMENTS_FILE" 2>/dev/null | awk '{print $1}')
 
@@ -64,8 +74,14 @@ fi
 
 if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     echo "📚 의존성 설치/업데이트 중 (uv 사용)..."
-    pip install uv # uv 설치 또는 업데이트
-    HNSWLIB_NO_NATIVE=1 uv pip install -r "$REQUIREMENTS_FILE"
+    if [ "$HAS_LOCAL_WHEELS" = false ]; then
+        pip install --upgrade pip
+    fi
+    if ! python -m uv --version >/dev/null 2>&1; then
+        echo "🧰 uv 설치 중..."
+        pip install "${PIP_ARGS[@]}" uv
+    fi
+    HNSWLIB_NO_NATIVE=1 uv pip install "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"
     
     # 설치 완료 후 마커 파일 생성 및 해시값 저장
     touch "$INSTALLED_MARKER"
