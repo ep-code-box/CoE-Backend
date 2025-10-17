@@ -63,8 +63,16 @@ if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
     HAS_LOCAL_WHEELS=true
 fi
 
-# 현재 requirements.in의 해시값 계산
-CURRENT_HASH=$(shasum "$REQUIREMENTS_FILE" 2>/dev/null | awk '{print $1}')
+# 현재 requirements.in의 해시값 계산 (shasum 미존재 환경 대비)
+CURRENT_HASH=$(python3 - <<'PY' "$REQUIREMENTS_FILE"
+import hashlib, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+if not path.exists():
+    print("")
+else:
+    print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+)
 
 # 이전 해시값 읽기
 PREVIOUS_HASH=""
@@ -79,6 +87,10 @@ if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     fi
     if ! python -m uv --version >/dev/null 2>&1; then
         echo "🧰 uv 설치 중..."
+        if [ "$HAS_LOCAL_WHEELS" = true ] && ! ls "$WHEEL_DIR"/uv-*.whl >/dev/null 2>&1; then
+            echo "❌ uv 휠을 찾을 수 없습니다. 외부망에서 'python -m pip download uv -d $WHEEL_DIR' 실행 후 다시 시도하세요."
+            exit 1
+        fi
         pip install "${PIP_ARGS[@]}" uv
     fi
     HNSWLIB_NO_NATIVE=1 uv pip install "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"
