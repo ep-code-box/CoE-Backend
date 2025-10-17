@@ -104,6 +104,112 @@ def _shorten_for_log(text: Optional[str], limit: int = 400) -> str:
     return f"{compact[:limit]}…(+{overflow} chars)"
 
 
+def _content_part_to_dict(part: Any) -> Optional[Dict[str, Any]]:
+    """Pydantic 모델이나 dict를 표준 dict로 변환."""
+    if part is None:
+        return None
+    if hasattr(part, "model_dump"):
+        try:
+            return part.model_dump(exclude_none=True)
+        except Exception:
+            return None
+    if isinstance(part, dict):
+        return part
+    return None
+
+
+def _extract_text_from_content(content: Any) -> str:
+    """멀티모달 메시지에서 텍스트 조각만 추출."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        fragments: List[str] = []
+        attachment_count = 0
+        text_types = {"text", "input_text"}
+        image_types = {"image_base64", "input_image", "image_url"}
+        file_types = {"file_base64", "input_file"}
+        for part in content:
+            part_dict = _content_part_to_dict(part)
+            if not part_dict:
+                continue
+            part_type = (part_dict.get("type") or "").lower()
+            if part_type in text_types:
+                text_value = part_dict.get("text")
+                if text_value:
+                    fragments.append(text_value)
+            elif part_type in image_types or part_type in file_types:
+                attachment_count += 1
+                detail = (
+                    part_dict.get("detail")
+                    or part_dict.get("alt_text")
+                    or part_dict.get("filename")
+                    or part_dict.get("mime_type")
+                )
+                if detail:
+                    fragments.append(detail)
+        if fragments:
+            return "\n".join(fragment for fragment in fragments if fragment)
+        if attachment_count:
+            return f"[attachment x{attachment_count}]"
+        return ""
+    if isinstance(content, dict):
+        return _extract_text_from_content([content])
+    return str(content) if content is not None else ""
+
+
+def _summarize_content_for_log(content: Any) -> str:
+    """로그용으로 콘텐츠를 요약 (텍스트 + 이미지 플레이스홀더)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts: List[str] = []
+        attachment_count = 0
+        attachment_descriptions: List[str] = []
+        text_types = {"text", "input_text"}
+        image_types = {"image_base64", "input_image", "image_url"}
+        file_types = {"file_base64", "input_file"}
+        for part in content:
+            part_dict = _content_part_to_dict(part)
+            if not part_dict:
+                continue
+            part_type = (part_dict.get("type") or "").lower()
+            if part_type in text_types:
+                text_value = part_dict.get("text")
+                if text_value:
+                    texts.append(text_value)
+            elif part_type in image_types or part_type in file_types:
+                attachment_count += 1
+                label = "image" if part_type in image_types else "file"
+                detail = (
+                    part_dict.get("detail")
+                    or part_dict.get("alt_text")
+                    or part_dict.get("filename")
+                    or part_dict.get("mime_type")
+                )
+                if detail:
+                    attachment_descriptions.append(f"[{label}: {detail}]")
+                else:
+                    attachment_descriptions.append(f"[{label}]")
+        texts.extend(attachment_descriptions)
+        if attachment_count and not attachment_descriptions:
+            texts.append(f"[attachment x{attachment_count}]")
+        return " ".join(fragment for fragment in texts if fragment)
+    if isinstance(content, dict):
+        return _summarize_content_for_log([content])
+    return str(content) if content is not None else ""
+
+
+def _deserialize_message_content(value: Any) -> Any:
+    """저장된 문자열 콘텐츠를 원래 구조로 복원 시도."""
+    if not isinstance(value, str):
+        return value
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return value
+    return parsed
+
+
 def _merge_tool_schemas(server_schemas: List[Any], client_schemas: Optional[List[Any]]) -> List[Any]:
     """
     서버에서 로드한 도구 스키마 + 클라이언트 도구 스키마 병합(중복 제거)
@@ -180,13 +286,14 @@ async def _get_or_create_session_and_history(
 
     current_user_content = ""
     for msg in raw_history:
-        history_dicts.append({"role": msg.role, "content": msg.content})
+        stored_content = _deserialize_message_content(msg.content)
+        history_dicts.append({"role": msg.role, "content": stored_content})
 
     for msg in req.messages:
         message_dump = msg.model_dump(exclude_none=True)
         history_dicts.append(message_dump)
         if msg.role == "user":
-            current_user_content = msg.content
+            current_user_content = _extract_text_from_content(msg.content)
 
     return session, current_session_id, history_dicts, current_user_content
 
@@ -775,7 +882,7 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
         last_user_message = ""
         for msg in reversed(req.messages or []):
             if msg.role == "user":
-                last_user_message = msg.content
+                last_user_message = _summarize_content_for_log(msg.content)
                 break
         logger.info(
             "[CHAT][LLM REQUEST] model=%s user=%s",

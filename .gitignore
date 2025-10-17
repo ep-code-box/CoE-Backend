@@ -48,3 +48,5 @@ server.log
 
 .DS_Store
 *.bak
+
+*.tar

@@ -7,7 +7,8 @@
   - `core/guide_agent/`: LangGraph 기반 가이드 에이전트 그래프와 노드, RAG 클라이언트, 결과 포매터가 포함됩니다.
   - `api/chat_api.py`: `context="guide"` 또는 `tool_input.guide_mode=true` 요청 시 가이드 에이전트가 실행되고 Markdown 요약/권장 도구를 제공합니다.
   - `GUIDE_AGENT_RAG_URL` 환경 변수로 RAG 파이프라인 엔드포인트를 지정할 수 있으며, 미설정 시 `http://coe-ragpipeline-dev:8001`를 기본값으로 사용합니다.
-  - 가이드가 제안한 도구는 세션에 보관되며 `tool_input.guide_confirm=true`로 실행, `tool_input.guide_cancel=true`로 취소할 수 있습니다. 인자가 필요하면 `tool_input.guide_tool_args={...}`로 전달하세요.
+  - 추천 도구는 세션에 저장되어 `tool_input.guide_confirm=true` 또는 `tool_input.guide_cancel=true` 요청으로 실행/해제할 수 있으며, 인자가 필요한 경우 `tool_input.guide_tool_args={...}` 로 덮어쓸 수 있습니다.
+  - 전체 흐름과 상태 모델, 테스트 시나리오는 `guide_agent_docs/README.md` 에서 확인하세요.
 
 ## Build, Test, and Development Commands
 Run `./run.sh` to create the venv, install deps via `uv`, apply migrations, and start the API on port 8000. Use `APP_ENV=development PORT=8000 python main.py` for hot reload during local edits. Execute `pytest -q` for the full suite; narrow scope with `pytest -q -k "pattern"`. Apply migrations manually with `alembic upgrade head`, and use `docker build -t coe-backend .` plus `docker run --env-file .env -p 8000:8000 coe-backend` for containerized runs.

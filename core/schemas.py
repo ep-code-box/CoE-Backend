@@ -64,26 +64,68 @@ class ToolCall(BaseModel):
 
 # --- 메시지 타입 스키마 ---
 
+class TextContentPart(BaseModel):
+    """텍스트 기반 메시지 조각"""
+    type: Literal["text", "input_text"]
+    text: str
+
+
+class ImageBase64ContentPart(BaseModel):
+    """Base64 이미지 메시지 조각"""
+    type: Literal["image_base64", "input_image"]
+    image_base64: str
+    mime_type: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class ImageURLContentPart(BaseModel):
+    """URL 기반 이미지 메시지 조각"""
+    type: Literal["image_url"]
+    image_url: Dict[str, Any]
+    detail: Optional[str] = None
+
+
+class FileBase64ContentPart(BaseModel):
+    """Base64 일반 파일 메시지 조각"""
+    type: Literal["file_base64", "input_file"]
+    file_base64: str
+    mime_type: Optional[str] = None
+    filename: Optional[str] = None
+    detail: Optional[str] = None
+
+
+ChatContentPart = Union[
+    TextContentPart,
+    ImageBase64ContentPart,
+    ImageURLContentPart,
+    FileBase64ContentPart,
+]
+ChatMessageContent = Union[str, List[ChatContentPart]]
+
+
 class SystemMessage(BaseModel):
     """시스템 메시지"""
     role: Literal["system"]
-    content: str
+    content: ChatMessageContent
+
 
 class UserMessage(BaseModel):
     """사용자 메시지"""
     role: Literal["user"]
-    content: str
+    content: ChatMessageContent
+
 
 class AssistantMessage(BaseModel):
     """어시스턴트 메시지. Tool 호출을 포함할 수 있습니다."""
     role: Literal["assistant"]
-    content: Optional[str] = None
+    content: Optional[ChatMessageContent] = None
     tool_calls: Optional[List[ToolCall]] = None
+
 
 class ToolMessage(BaseModel):
     """Tool 실행 결과 메시지"""
     role: Literal["tool"]
-    content: str
+    content: ChatMessageContent
     tool_call_id: str
 
 # 메시지 리스트에 포함될 수 있는 모든 메시지 타입의 Union
