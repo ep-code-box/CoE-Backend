@@ -82,8 +82,10 @@ fi
 
 if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     echo "📚 의존성 설치/업데이트 중 (uv 사용)..."
+    echo "🛠️  pip/setuptools 부트스트랩 중..."
+    python -m ensurepip --upgrade >/dev/null 2>&1 || python -m ensurepip --upgrade
     if [ "$HAS_LOCAL_WHEELS" = false ]; then
-        pip install --upgrade pip
+        pip install --upgrade pip setuptools
     fi
     if ! python -m uv --version >/dev/null 2>&1; then
         echo "🧰 uv 설치 중..."
@@ -93,7 +95,7 @@ if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
         fi
         pip install "${PIP_ARGS[@]}" uv
     fi
-    HNSWLIB_NO_NATIVE=1 uv pip install "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"
+    HNSWLIB_NO_NATIVE=1 uv pip install --no-build-isolation "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"
     
     # 설치 완료 후 마커 파일 생성 및 해시값 저장
     touch "$INSTALLED_MARKER"
