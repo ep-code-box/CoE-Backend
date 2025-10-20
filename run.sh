@@ -82,10 +82,29 @@ fi
 
 if [ ! -f "$INSTALLED_MARKER" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     echo "📚 의존성 설치/업데이트 중 (uv 사용)..."
-    echo "🛠️  pip/setuptools 부트스트랩 중..."
+    echo "🛠️  pip/setuptools/wheel 부트스트랩 중..."
     python -m ensurepip --upgrade >/dev/null 2>&1 || python -m ensurepip --upgrade
-    if [ "$HAS_LOCAL_WHEELS" = false ]; then
-        pip install --upgrade pip setuptools
+    BOOTSTRAP_PKGS=(pip setuptools wheel)
+    INSTALL_PKGS=()
+    if [ "$HAS_LOCAL_WHEELS" = true ]; then
+        for pkg in "${BOOTSTRAP_PKGS[@]}"; do
+            if ! PKG="$pkg" python - <<'PY' >/dev/null 2>&1; then
+import importlib, os, sys
+sys.exit(0 if importlib.util.find_spec(os.environ["PKG"]) else 1)
+PY
+                if ! ls "$WHEEL_DIR"/"$pkg"-*.whl >/dev/null 2>&1; then
+                    echo "❌ ${pkg} 휠을 찾을 수 없습니다: $WHEEL_DIR/${pkg}-*.whl"
+                    echo "   외부망에서 'python -m pip download ${pkg} -d $WHEEL_DIR' 후 다시 실행하세요."
+                    exit 1
+                fi
+                INSTALL_PKGS+=("$pkg")
+            fi
+        done
+    else
+        INSTALL_PKGS=("${BOOTSTRAP_PKGS[@]}")
+    fi
+    if [ "${#INSTALL_PKGS[@]}" -gt 0 ]; then
+        python -m pip install "${PIP_ARGS[@]}" --upgrade "${INSTALL_PKGS[@]}"
     fi
     if ! python -m uv --version >/dev/null 2>&1; then
         echo "🧰 uv 설치 중..."
