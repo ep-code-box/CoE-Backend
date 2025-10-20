@@ -114,7 +114,10 @@ PY
         fi
         pip install "${PIP_ARGS[@]}" uv
     fi
-    HNSWLIB_NO_NATIVE=1 uv pip install --no-build-isolation "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"
+    if ! HNSWLIB_NO_NATIVE=1 uv pip install --no-build-isolation "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"; then
+        echo "⚠️  uv 설치 중 오류 발생, pip로 재시도합니다..."
+        HNSWLIB_NO_NATIVE=1 python -m pip install --no-build-isolation "${PIP_ARGS[@]}" -r "$REQUIREMENTS_FILE"
+    fi
     
     # 설치 완료 후 마커 파일 생성 및 해시값 저장
     touch "$INSTALLED_MARKER"
