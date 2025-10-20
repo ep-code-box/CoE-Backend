@@ -37,7 +37,7 @@ fi
 # 가상환경 존재 확인 및 생성
 if [ ! -d "$VENV_DIR" ]; then
     echo "📦 가상환경이 존재하지 않습니다. 새로 생성합니다..."
-    python3 -m venv "$VENV_DIR"
+    python3.11 -m venv "$VENV_DIR"
     echo "✅ 가상환경 생성 완료"
 fi
 
