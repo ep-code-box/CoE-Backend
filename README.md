@@ -27,6 +27,13 @@
 - 전체 배포: `../docs/DEPLOY.md`
 - 로컬/개발/완전 격리 스택: `../docs/DEPLOY.md#완전-격리-배포edge--prod-full--dev-full`
 
+### 3.1. 오프라인 의존성 준비
+내부망에서 `pip`/`uv` 설치가 불가능할 경우, 외부망 머신에서 아래 스크립트로 Linux+Python3.11용 휠을 모아 두세요.
+```bash
+./scripts/download_wheels.sh backend
+```
+스크립트는 Docker( python:3.11-bullseye )를 사용해 `CoE-Backend/vendor/wheels/` 에 필요한 패키지와 `uv` 휠을 내려받습니다. 이후 휠 디렉터리를 내부망 서버로 복사하고 `./run.sh`를 실행하면 `uv pip install --no-index --find-links=vendor/wheels ...` 경로로 설치가 진행됩니다.
+
 ## 4. API 사용 예시
 
 Swagger 경로와 주요 예시는 다음 문서에서 확인하세요.
