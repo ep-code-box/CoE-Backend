@@ -14,7 +14,7 @@ def get_flow_router_service(request: Request) -> FlowRouterService:
 
 router = APIRouter(
     prefix="/flows",
-    tags=["Flows Management"],
+    tags=["⚙️ Flows"],
 )
 
 # Support both "/flows" and "/flows/" to avoid redirect issues

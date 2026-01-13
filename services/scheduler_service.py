@@ -30,7 +30,7 @@ class SchedulerService:
             active_flows_in_db = {schemas.FlowRead.from_orm(flow).endpoint for flow in flows_from_db if flow.is_active}
 
             # 현재 라우팅되고 있는 엔드포인트를 가져옵니다.
-            routed_endpoints = {endpoint.replace("/flows/run/", "") for endpoint in self.router_service.dynamic_routers.keys()}
+            routed_endpoints = {endpoint.replace("/run/", "") for endpoint in self.router_service.dynamic_routers.keys()}
 
             # DB에 추가되어야 할 라우트를 찾습니다.
             to_add = active_flows_in_db - routed_endpoints

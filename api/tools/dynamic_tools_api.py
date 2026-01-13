@@ -31,7 +31,7 @@ class DynamicToolsAPI:
     """동적 도구 API 클래스"""
     
     def __init__(self):
-        self.router = APIRouter(prefix="/tools", tags=["Dynamic Tools"])
+        self.router = APIRouter(prefix="/tools", tags=["🛠️ Dynamic Tools"])
         self.tool_nodes = {}
         self.tool_descriptions = []
         self._load_tools()
@@ -72,8 +72,14 @@ class DynamicToolsAPI:
     
     def _register_tool_endpoint(self, tool_desc: Dict[str, Any]):
         """개별 도구에 대한 API 엔드포인트를 등록"""
+        # 도구 노드 함수 찾기
         tool_name = tool_desc['name']
         url_path = tool_desc['url_path']
+        
+        # 라우터 프리픽스와 중복되는 경우 처리
+        if url_path.startswith("/tools/"):
+            url_path = url_path.replace("/tools", "", 1)
+        
         description = tool_desc['description']
         
         # 도구 노드 함수 찾기
@@ -132,8 +138,12 @@ class DynamicToolsAPI:
                 # 도구 실행 시작 로그
                 logger.info(f"🚀 [API_TOOL_EXECUTION_START] Starting API execution of tool: '{tool_name}'")
                 
-                # 도구 실행
-                result = node_func(state)
+                # 도구 실행 ( tool_input과 state 두 인자를 전달)
+                import inspect
+                if inspect.iscoroutinefunction(node_func):
+                    result = await node_func(request.input_data, state)
+                else:
+                    result = node_func(request.input_data, state)
                 
                 # 도구 실행 완료 로그
                 logger.info(f"✅ [API_TOOL_EXECUTION_COMPLETE] API execution of tool '{tool_name}' completed successfully")

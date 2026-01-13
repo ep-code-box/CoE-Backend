@@ -27,6 +27,10 @@ var/
 
 # Environments
 .env
+.env.prod
+.env.dev
+.env.local
+.env.docker
 .venv
 env/
 venv/

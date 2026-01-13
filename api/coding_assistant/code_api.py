@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from utils.coding_assistant.code_parser import CodeParser, CodeLanguage, CodeBlock, FunctionInfo, ClassInfo
 from utils.coding_assistant.template_manager import template_manager, TemplateType
 
-router = APIRouter(prefix="/coding-assistant", tags=["Coding Assistant"])
+router = APIRouter(prefix="/coding-assistant", tags=["💻 Coding Assistant"])
 
 # Request/Response 모델들
 class CodeAnalysisRequest(BaseModel):

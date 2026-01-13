@@ -66,12 +66,15 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
     """저장된 LangFlow JSON을 실행하는 노드"""
     try:
         flow_name = None
-        if tool_input and 'flow_name' in tool_input:
-            flow_name = tool_input['flow_name']
-        else:
+        flow_id = None
+        if tool_input:
+            flow_name = tool_input.get('flow_name')
+            flow_id = tool_input.get('flow_id')
+        
+        if not flow_name and not flow_id:
             # 사용자 메시지에서 플로우 이름 추출
             last_message = state["history"][-1]["content"] if state["history"] else ""
-            # 간단한 파싱으로 플로우 이름 추출 (실제로는 더 정교한 파싱이 필요할 수 있음)
+            # 간단한 파싱으로 플로우 이름 추출
             if "실행" in last_message or "execute" in last_message.lower():
                 words = last_message.split()
                 for i, word in enumerate(words):
@@ -93,15 +96,29 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
         # 데이터베이스에서 플로우 찾기 (context 허용 여부 확인)
         db = SessionLocal()
         try:
-            db_flow = LangFlowService.get_flow_by_name(db, flow_name)
+            db_flow = None
+            if flow_id:
+                # 1. 먼저 정수 ID로 시도 (id 컬럼)
+                if isinstance(flow_id, (int, str)) and str(flow_id).isdigit():
+                    db_flow = LangFlowService.get_flow_by_id(db, int(flow_id))
+                
+                # 2. 정수 ID로 못 찾았거나 flow_id가 문자열인 경우 flow_id 컬럼으로 시도
+                if not db_flow:
+                    db_flow = db.query(LangFlow).filter(LangFlow.flow_id == str(flow_id), LangFlow.is_active == True).first()
+            else:
+                db_flow = LangFlowService.get_flow_by_name(db, flow_name)
             
             if not db_flow:
+                target = f"ID '{flow_id}'" if flow_id else f"이름 '{flow_name}'"
                 return {
                     "messages": [{
                         "role": "assistant",
-                        "content": f"'{flow_name}' 플로우를 찾을 수 없습니다. 저장된 플로우 목록을 확인해보세요."
+                        "content": f"{target} 플로우를 찾을 수 없습니다. 저장된 플로우 목록을 확인해보세요."
                     }]
                 }
+            
+            # 실제 사용된 이름 확보 (로깅용)
+            actual_flow_name = db_flow.name
             
             # 현재 컨텍스트에서 사용 가능한지 확인
             current_ctx = state.get("context")
@@ -154,7 +171,7 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
             return {
                 "messages": [{
                     "role": "assistant",
-                    "content": f"✅ LangFlow '{flow_name}' 실행 완료!\n\n실행 결과:\n{result}"
+                    "content": f"✅ LangFlow '{actual_flow_name}' 실행 완료!\n\n실행 결과:\n{result}"
                 }]
             }
         finally:
@@ -239,9 +256,12 @@ available_tools: List[Dict[str, Any]] = [
                     "flow_name": {
                         "type": "string",
                         "description": "실행할 LangFlow의 이름"
+                    },
+                    "flow_id": {
+                        "type": "integer",
+                        "description": "실행할 LangFlow의 ID (이름 대신 사용할 수 있음)"
                     }
-                },
-                "required": ["flow_name"]
+                }
             }
         }
     },

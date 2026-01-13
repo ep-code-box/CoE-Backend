@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from core.models import model_registry
 
-router = APIRouter()
+router = APIRouter(tags=["📂 Models"])
 
 
 @router.get("/v1/models")

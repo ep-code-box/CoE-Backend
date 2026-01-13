@@ -32,7 +32,7 @@ RUN uv pip install --system --no-cache -r requirements.in
 COPY . .
 
 # pidpy 로컬 휠 설치 (vendor 폴더 포함)
-RUN pip install /app/vendor/pidpy/pidpy-1.3.19-py3-none-linux_x86_64.whl
+# RUN pip install /app/vendor/wheels/pidpy-1.3.19-py3-none-linux_x86_64.whl
 
 # 6. 로그 디렉토리 생성 및 권한 설정
 RUN mkdir -p /app/logs && \

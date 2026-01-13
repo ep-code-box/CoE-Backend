@@ -72,6 +72,18 @@ class AppFactory:
         openapi_url = "/openapi.json" if expose_docs else None
         root_path = os.getenv("ROOT_PATH", "")
 
+        # 태그 메타데이터 정의
+        tags_metadata = [
+            {"name": "🤖 AI Chat", "description": "OpenAI 호환 채팅 인터페이스 및 LangGraph 에이전트 실행"},
+            {"name": "🧠 RAG", "description": "RAG 파이프라인 연동 프로시 엔드포인트"},
+            {"name": "💻 Coding Assistant", "description": "코드 분석, 템플릿 기반 생성 및 리뷰 도구"},
+            {"name": "📂 Models", "description": "사용 가능한 AI 모델 목록 및 정보 조회"},
+            {"name": "⚙️ Flows", "description": "LangFlow 워크플로우 관리 및 동적 엔드포인트"},
+            {"name": "💎 Embeddings", "description": "OpenAI 호환 텍스트 임베딩 서비스"},
+            {"name": "🛠️ Dynamic Tools", "description": "시스템에 등록된 동적 도구 실행 API"},
+            {"name": "🏥 Health Check", "description": "서버 상태 확인 및 헬스 체크"},
+        ]
+
         # FastAPI 앱 생성
         app = FastAPI(
             title="🤖 CoE Backend API",
@@ -81,21 +93,32 @@ class AppFactory:
             이 API는 **LangGraph 기반 AI 에이전트**와 **다양한 개발 도구**를 제공하는 백엔드 서버입니다.
             
             ### 🚀 주요 기능
-            - **AI 에이전트 채팅**: OpenAI 호환 채팅 API (`/v1/chat/completions`)
-            - **코딩 어시스턴트**: 코드 생성, 분석, 리팩토링, 리뷰 (`/api/coding-assistant/`)
-            - **LangFlow 연동**: 워크플로우 관리 (`/flows/`)
-            - **동적 도구**: 자동 도구 등록 및 관리 (`/tools/`)
+            - **AI 에이전트 채팅**: OpenAI 호환 채팅 API (`/v1/chat/completions`)를 통해 LangGraph 에이전트와 대화
+            - **Guide Agent**: 문서 및 지식 기반의 가이드 제공 (`context=guide` 또는 `guide_mode=true`)
+            - **코딩 어시스턴트**: 코드 생성, 분석, 리팩토링, 리뷰 도구 제공
+            - **LangFlow 연동**: 동적으로 등록된 워크플로우를 API 엔드포인트로 노출
+            - **RAG 파이프라인**: Git 저장소 분석 및 벡터 검색 연동
+            - **PII 보호**: 민감 정보(개인정보) 자동 마스킹 및 필터링
             
             ### 📚 사용 가이드
             1. **AI 채팅 시작**: `/v1/chat/completions`로 첫 대화를 시작하면, 응답으로 `session_id`가 발급됩니다.
-            2. **대화 이어가기**: 다음 요청부터는 받은 `session_id`를 요청 본문에 포함시켜 보내면, AI가 이전 대화 내용을 기억하고 맥락에 맞는 답변을 합니다.
-            3. **코딩 지원 및 벡터 검색**: 필요에 따라 다른 API들을 활용하여 개발 작업을 보조할 수 있습니다.
+            2. **대화 이어가기**: 다음 요청부터는 받은 `session_id`를 요청 본문에 포함시켜 보내면 맥락에 맞는 답변을 합니다.
+            3. **동적 도구**: `/tools/` 하위에 등록된 다양한 자동화 도구들을 직접 호출할 수 있습니다.
             
             ### 🔗 연동 서비스
             - **OpenWebUI**: `http://localhost:8000/v1` 설정으로 연동 가능
-            - **CoE-RagPipeline**: `http://localhost:8001` (Git 소스코드 및 RDB 스키마 분석 서비스)
+            - **CoE-RagPipeline**: 소스코드/스키마 분석 및 임베딩 제공 서비스
             """,
             version="1.0.0",
+            contact={
+                "name": "CoE AI Support",
+                "url": "https://github.com/your-repo/CoE",
+            },
+            license_info={
+                "name": "Apache 2.0",
+                "url": "https://www.apache.org/licenses/LICENSE-2.0.html",
+            },
+            openapi_tags=tags_metadata,
             docs_url=docs_url,
             redoc_url=redoc_url,
             openapi_url=openapi_url,

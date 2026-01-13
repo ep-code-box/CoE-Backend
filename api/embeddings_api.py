@@ -7,7 +7,7 @@ import httpx # Import httpx for making async HTTP requests
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1", tags=["embeddings"])
+router = APIRouter(prefix="/v1", tags=["💎 Embeddings"])
 
 # OpenAI 호환 임베딩 요청/응답 모델
 class EmbeddingRequest(BaseModel):

@@ -5,16 +5,24 @@ import os
 from typing import List, Tuple
 from typing_extensions import TypedDict
 
-import pidpy
-from pidpy.pidpython import (
-    PID,
-    StrPartVector,
-    PID_BIT_ALL,
-    PID_OPTION_CHECK_DIGIT,
-)
+try:
+    import pidpy
+    from pidpy.pidpython import (
+        PID,
+        StrPartVector,
+        PID_BIT_ALL,
+        PID_OPTION_CHECK_DIGIT,
+    )
+    PIDPY_AVAILABLE = True
+except ImportError:
+    PIDPY_AVAILABLE = False
+    PID = None
+    StrPartVector = None
+    PID_BIT_ALL = None
+    PID_OPTION_CHECK_DIGIT = None
 
-ENABLE_PID = os.getenv("ENABLE_PID_DETECTION", "true").lower() in {"1", "true", "yes", "on"}
-DATA_PATH = os.getenv("PID_DATA_PATH") or os.path.dirname(pidpy.__file__)
+ENABLE_PID = PIDPY_AVAILABLE and os.getenv("ENABLE_PID_DETECTION", "true").lower() in {"1", "true", "yes", "on"}
+DATA_PATH = os.getenv("PID_DATA_PATH") or (PIDPY_AVAILABLE and os.path.dirname(pidpy.__file__))
 _INITIALIZED = False
 
 
