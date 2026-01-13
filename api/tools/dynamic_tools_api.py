@@ -4,21 +4,37 @@ tools 디렉토리의 도구들을 스캔하여 url_path가 있는 도구들을 
 """
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Dict, Any, Optional, List
 import json
 import logging
 
 from tools.core.loader import load_all_tools_dynamically as load_all_tools
-from core.schemas import AgentState
+from core.schemas import AgentState, Message
 
 logger = logging.getLogger(__name__)
 
 # 요청/응답 모델 정의
 class ToolExecutionRequest(BaseModel):
     """도구 실행 요청 모델"""
-    input_data: Dict[str, Any] = {}
-    messages: Optional[List[Dict[str, str]]] = None
+    input_data: Dict[str, Any] = Field(
+        default={},
+        description="도구 실행에 필요한 입력 데이터입니다. LangFlow 실행 시 'flow_name' 또는 'flow_id'를 여기에 포함해야 합니다."
+    )
+    messages: Optional[List[Message]] = Field(
+        default=None,
+        description="대화 기록입니다. OpenAI 메시지 규격(role, content)을 따릅니다."
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "input_data": {
+                    "text": "안녕, 반가워!"
+                }
+            }
+        }
+    )
     
 class ToolExecutionResponse(BaseModel):
     """도구 실행 응답 모델"""

@@ -1,6 +1,6 @@
 from typing import Annotated, List, Literal, Dict, Any, Optional, Union
 from typing_extensions import TypedDict
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from datetime import datetime
 import json
 
@@ -154,6 +154,18 @@ class OpenAIChatRequest(BaseModel):
     tool_input: Optional[Dict[str, Any]] = None
     context: Optional[str] = None # 도구 컨텍스트 (e.g., 'aider', 'continue.dev')
 
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "model": "gpt-4o",
+                "messages": [
+                    {"role": "user", "content": "안녕, 오늘 날씨 어때?"}
+                ],
+                "stream": False
+            }
+        }
+    )
+
 
 class AiderChatRequest(OpenAIChatRequest):
     group_name: Optional[str] = None # aider 전용 group_name 필드 추가
@@ -204,6 +216,17 @@ class ExecuteFlowRequest(BaseModel):
     tweaks: Optional[Dict[str, Any]] = None
     langflow_url: Optional[str] = None
 
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "flow_name": "weather-flow",
+                "inputs": {
+                    "location": "Seoul"
+                }
+            }
+        }
+    )
+
 class ExecuteFlowResponse(BaseModel):
     success: bool
     session_id: Optional[str] = None
@@ -237,6 +260,22 @@ class FlowCreate(BaseModel):
         description="Optional list of context/group mappings. Each item specifies a context and its allowed group names."
     )
 
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "endpoint": "weather-flow",
+                "description": "오늘의 날씨를 알려주는 플로우",
+                "flow_id": "flow-12345",
+                "flow_body": {
+                    "name": "Weather Flow",
+                    "id": "flow-12345",
+                    "data": {"nodes": [], "edges": []}
+                },
+                "context": ["aider", "continue.dev"]
+            }
+        }
+    )
+
 
 class FlowContextGroup(BaseModel):
     context: str = Field(..., description="Context name (e.g., 'aider').")
@@ -258,10 +297,10 @@ class FlowRead(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
-    @root_validator(pre=True)
+    @model_validator(mode='before')
+    @classmethod
     def map_db_to_api_fields(cls, obj):
         # When loading from the DB model, 'name' and 'flow_data' will be present.
         # Create a dictionary from the ORM object's attributes

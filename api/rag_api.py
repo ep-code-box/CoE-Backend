@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, ConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,22 @@ class AnalysisRequestPayload(BaseModel):
     generate_report: bool = True
     group_name: Optional[str] = None
 
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "repositories": [
+                    {
+                        "url": "https://github.com/example/repo",
+                        "branch": "main",
+                        "name": "Example Repo"
+                    }
+                ],
+                "include_ast": True,
+                "generate_report": True
+            }
+        }
+    )
+
 
 class AnalysisStartResponse(BaseModel):
     """Response returned when analysis is queued or reused."""
@@ -69,6 +85,15 @@ class SearchRequestPayload(BaseModel):
     analysis_id: Optional[str] = None
     repository_url: Optional[str] = None
     group_name: Optional[str] = None
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "query": "이 레포지토리의 주요 구조를 설명해줘",
+                "k": 5
+            }
+        }
+    )
 
 
 class EmbedContentPayload(BaseModel):
