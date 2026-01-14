@@ -1,4 +1,41 @@
 services:
+
+  coe:
+    build:
+      context: .
+      dockerfile: Dockerfile-coe
+    restart: on-failure
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONPTH: /app
+      SKAX_API_KEY: $SKAX_API_KEY
+      OPENAI_API_KEY: $OPENAI_API_KEY
+      JWT_SECRET_KEY: $JWT_SECRET_KEY
+    env_file:
+      - ./.env
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    volumes:
+      - ./api:/app/api
+      - ./config:/app/config
+      - ./dbmig:/app/dbmig
+      - ./main.py:/app/main.py
+      - ./external_tool_schemas:/app/external_tool_schemas
+      - ./guide_agent_docs:/app/guide_agent_docs
+      - ./routers:/app/routers
+      - ./scripts:/app/scripts
+      - ./services:/app/services
+      - ./tests:/app/tests
+      - ./tools:/app/tools
+      - ./utils:/app/utils
+    command: >
+      sh -c "uv run alembic upgrade head && \
+             gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 300 --bind 0.0.0.0:8000"  
+    networks:
+      - axstudio-dev
+
   mariadb:
     image: mariadb:11.4
     container_name: coe-mariadb
@@ -17,6 +54,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - axstudio-dev
 
   prod_chroma:
     image: chromadb/chroma:latest
@@ -27,6 +66,8 @@ services:
       - "8002:8002"
     volumes:
       - chroma_data:/chroma/chroma
+    networks:
+      - axstudio-dev
 
   redis:
     image: redis:7-alpine
@@ -42,8 +83,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - axstudio-dev
 
 volumes:
   mariadb_data:
   chroma_data:
   redis_data:
+
+networks:
+  axstudio-dev:
+    external: true
