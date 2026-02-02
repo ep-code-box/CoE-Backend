@@ -1,0 +1,49 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: coe-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-coe_db}
+      MARIADB_USER: ${DB_USER:-coe_user}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-coe_password}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-coe_root_password}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p$$MARIADB_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  prod_chroma:
+    image: chromadb/chroma:latest
+    container_name: prod_chroma
+    entrypoint: ["chroma"]
+    command: ["run", "--host", "0.0.0.0", "--port", "8002", "--path", "/chroma/chroma"]
+    ports:
+      - "8002:8002"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  redis:
+    image: redis:7-alpine
+    container_name: coe-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mariadb_data:
+  chroma_data:
+  redis_data:
