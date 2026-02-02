@@ -12,7 +12,7 @@
     "name": "GPT-4o",
     "description": "OpenAI's most advanced, multimodal model.",
     "provider": "openai",
-    "is_default": true,
+    "is_default": false,
     "model_type": "chat"
   },
   {
@@ -49,5 +49,47 @@
     "is_default": false,
     "api_base": "http://host.docker.internal:11436/v1",
     "model_type": "embedding"
+  },
+  {
+    "model_id": "gpt-5.2",
+    "name": "GPT-5.2",
+    "description": "Updated next-gen model",
+    "provider": "openai",
+    "is_default": false,
+    "model_type": "chat"},
+  {
+    "model_id": "gpt-5.1",
+    "name": "GPT-5.1",
+    "description": "The Chat-GPT-5.1 model",
+    "provider": "openai",
+    "is_default": false,
+    "model_type": "chat"
+  },
+  {
+    "model_id": "claude-3-5-sonnet",
+    "name": "Claude-3.5-Sonnet",
+    "description": "Anthropic's powerful model",
+    "provider": "anthropic",
+    "is_default": false,
+    "model_type": "chat",
+    "api_base": "https://api.anthropic.com/v1"
+  },
+  {
+    "model_id": "claude-3-7-sonnet",
+    "name": "Claude-3.7-Sonnet",
+    "description": "Recommended: Best balance of speed and reasoning.",
+    "provider": "anthropic",
+    "is_default": false,
+    "model_type": "chat",
+    "api_base": "https://api.anthropic.com/v1"
+  },
+  {
+    "model_id": "claude-4-5-opus",
+    "name": "Claude-4.5-Opus",
+    "description": "Latest: Most powerful frontier model for complex tasks.",
+    "provider": "anthropic",
+    "is_default": false,
+    "model_type": "chat",
+    "api_base": "https://api.anthropic.com/v1"
   }
 ]
