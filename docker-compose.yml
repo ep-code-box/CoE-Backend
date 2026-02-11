@@ -1,4 +1,38 @@
 services:
+
+  coe:
+    build:
+      context: .
+      args:
+        - DEV=true
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      PYTHONPATH: /app
+    ports:
+      - "8005:8005"
+    volumes:
+      - "./api:/app/api"
+      - "./config:/app/config"
+      - "./core:/app/core"
+      - "./dbmig:/app/dbmig"
+      - "./external_tool_schemas:/app/external_tool_schemas"
+      - "./routers:/app/routers"
+      - "./scripts:/app/scripts"
+      - "./services:/app/services"
+      - "./tests:/app/tests"
+      - "./tools:/app/tools"
+      - "./utils:/app/utils"
+      - "./app.py:/app/app.py"
+      - "./main.py:/app/main.py"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - axstudio-dev
+
   mariadb:
     image: mariadb:11.4
     container_name: coe-mariadb
@@ -18,15 +52,15 @@ services:
       timeout: 5s
       retries: 20
 
-  prod_chroma:
-    image: chromadb/chroma:latest
-    container_name: prod_chroma
-    entrypoint: ["chroma"]
-    command: ["run", "--host", "0.0.0.0", "--port", "8002", "--path", "/chroma/chroma"]
-    ports:
-      - "8002:8002"
-    volumes:
-      - chroma_data:/chroma/chroma
+  # prod_chroma:
+  #   image: chromadb/chroma:latest
+  #   container_name: prod_chroma
+  #   entrypoint: ["chroma"]
+  #   command: ["run", "--host", "0.0.0.0", "--port", "8002", "--path", "/chroma/chroma"]
+  #   ports:
+  #     - "8002:8002"
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
 
   redis:
     image: redis:7-alpine
