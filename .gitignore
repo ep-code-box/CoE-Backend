@@ -44,7 +44,9 @@ db/
 server.log
 .env.local
 .env.docker
-
+.bmad-core
+.github/
+.vscode/
 .pytest_cache
 *.log
 .ruff_cache
