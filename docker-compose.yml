@@ -3,6 +3,7 @@ services:
   coe:
     build:
       context: .
+      network: host
       args:
         - DEV=true
       dockerfile: Dockerfile

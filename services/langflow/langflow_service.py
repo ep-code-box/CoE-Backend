@@ -97,7 +97,7 @@ def _resolve_langflow_runner():
                         return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or inputs or {})  # type: ignore
                     except Exception:
                         # last resort: flow only
-                        return run_flow_from_json(flow=flow_data)  # type: ignore
+                        return run_flow_from_json(flow=flow_data, input_value="")  # type: ignore
 
         return _runner
     except Exception:
