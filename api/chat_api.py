@@ -626,7 +626,7 @@ async def _handle_guide_agent_flow(
 
     if suggestion:
         tool_name = suggestion.get("tool_name")
-        if tool_name and tool_name in server_functions:
+        if tool_name and (tool_name in server_functions or tool_name == "execute_langflow"):
             action_payload = {
                 "tool_name": tool_name,
                 "tool_type": suggestion.get("tool_type"),

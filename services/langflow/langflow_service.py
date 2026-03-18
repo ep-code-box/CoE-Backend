@@ -78,7 +78,8 @@ def _resolve_langflow_runner():
                 elif 'input_value' in params:
                     # Some versions require a positional/keyword 'input_value'
                     # Provide a simple string if dict given
-                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {})
+                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or (inputs or {})
+                    print(f"DEBUG: LangFlow inputs: {inputs}, extracted ival: {ival}")
                     kwargs['input_value'] = ival
                 elif 'data' in params and 'flow' in kwargs:
                     # if data exists and not used for graph, use for inputs
@@ -94,7 +95,7 @@ def _resolve_langflow_runner():
                 except Exception:
                     try:
                         # try input_value positional if function expects it
-                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or inputs or {})  # type: ignore
+                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or inputs or {})  # type: ignore
                     except Exception:
                         # last resort: flow only
                         return run_flow_from_json(flow=flow_data, input_value="")  # type: ignore
@@ -127,7 +128,7 @@ def _resolve_langflow_runner():
                 elif 'input_dict' in params:
                     kwargs['input_dict'] = inputs or {}
                 elif 'input_value' in params:
-                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {})
+                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or (inputs or {})
                     kwargs['input_value'] = ival
                 if 'tweaks' in params and 'tweaks' not in kwargs:
                     kwargs['tweaks'] = None
@@ -137,7 +138,7 @@ def _resolve_langflow_runner():
                     return run_flow_from_json(flow=flow_data, input=inputs or {})  # type: ignore
                 except Exception:
                     try:
-                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or inputs or {})  # type: ignore
+                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or inputs or {})  # type: ignore
                     except Exception:
                         return run_flow_from_json(flow=flow_data)  # type: ignore
 

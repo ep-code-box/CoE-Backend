@@ -1,6 +1,9 @@
 fastapi
 uvicorn
 langgraph
+langgraph-prebuilt
+langgraph-checkpoint
+langgraph-sdk
 langchain
 langchain-openai
 openai
@@ -20,3 +23,4 @@ lfx==0.1.13
 # langflow-base==0.5.0.post1
 streamlit
 gunicorn
+lfx

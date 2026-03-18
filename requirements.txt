@@ -437,3 +437,4 @@ youtube_transcript_api==0.6.3
 zep_python==2.0.2
 zipp==3.23.0
 zstandard==0.23.0
+lfx
