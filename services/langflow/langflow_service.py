@@ -241,6 +241,46 @@ class LangFlowExecutionService:
 
             _normalize_flow_payload(flow_data)
 
+            # SKAX 에이전트 노드의 BACKEND_BASE_URL을 localhost로 패치
+            # coe-backend 컨테이너가 직접 플로우를 실행할 때,
+            # 플로우 JSON에 하드코딩된 외부/크로스-컴포즈 URL
+            # (예: http://coe-backend-coe-1:8000/v1) 은 자기 자신의 네트워크에서
+            # 해석할 수 없으므로 localhost로 치환합니다.
+            import os
+            _SELF_BACKEND_URL = os.getenv(
+                "LANGFLOW_SELF_BACKEND_URL", "http://localhost:8000/v1"
+            )
+
+            def _patch_skax_backend_url(payload: Dict[str, Any]) -> None:
+                """Rewrite BACKEND_BASE_URL in SKAX agent code nodes."""
+                try:
+                    dg = payload.get("data") or {}
+                    nodes = dg.get("nodes") or []
+                    for node in nodes:
+                        if not isinstance(node, dict):
+                            continue
+                        nd = node.get("data") or {}
+                        nn = nd.get("node") or {}
+                        tmpl = nn.get("template") or {}
+                        code_block = tmpl.get("code")
+                        if not isinstance(code_block, dict):
+                            continue
+                        code_val = code_block.get("value", "")
+                        if "BACKEND_BASE_URL" not in code_val:
+                            continue
+                        # Replace hardcoded external URLs with localhost
+                        patched = re.sub(
+                            r'BACKEND_BASE_URL\s*=\s*["\']http://[^"\']+/v1["\']',
+                            f'BACKEND_BASE_URL = "{_SELF_BACKEND_URL}"',
+                            code_val,
+                        )
+                        if patched != code_val:
+                            code_block["value"] = patched
+                except Exception:
+                    pass  # best-effort patching
+
+            _patch_skax_backend_url(flow_data)
+
             # 호환 가능한 LangFlow 러너 확인
             runner = _resolve_langflow_runner()
             if runner is None:
