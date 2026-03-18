@@ -22,17 +22,18 @@ RUN pip install uv
 RUN pip install alembic
 
 # requirements.in 파일을 복사합니다.
-COPY requirements.in .
+COPY requirements.txt .
+
+COPY vendor/pidpy/pidpy-1.3.19-py3-none-linux_x86_64.whl ./vendor/pidpy/
+# pidpy 로컬 휠을 먼저 설치합니다.
+RUN pip install ./vendor/pidpy/pidpy-1.3.19-py3-none-linux_x86_64.whl
 
 # uv를 사용하여 requirements.in 파일의 패키지를 바로 설치합니다.
 # chroma-hnswlib 빌드 오류 방지를 위해 HNSWLIB_NO_NATIVE=1 환경 변수를 설정합니다.
-RUN uv pip install --system --no-cache -r requirements.in
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # 5. 소스 코드 복사
 COPY . .
-
-# pidpy 로컬 휠 설치 (vendor 폴더 포함)
-# RUN pip install /app/vendor/wheels/pidpy-1.3.19-py3-none-linux_x86_64.whl
 
 # 6. 로그 디렉토리 생성 및 권한 설정
 RUN mkdir -p /app/logs && \

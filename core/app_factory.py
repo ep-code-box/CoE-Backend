@@ -20,6 +20,7 @@ from core.lifespan import lifespan
 from core.logging_config import LOGGING_CONFIG
 from services.pii_service import scrub_text
 
+OPENAPI_URL = os.environ.get("OPENAPI_URL", "/openapi.json")
 
 class AppFactory:
     """FastAPI 애플리케이션 생성 및 초기화를 담당하는 팩토리 클래스"""
@@ -69,7 +70,7 @@ class AppFactory:
         docs_url = "/docs" if expose_docs else None
         redoc_url = "/redoc" if expose_docs else None
         # 운영 기본은 비공개. 필요 시 ENABLE_DOCS 로 명시적으로 노출.
-        openapi_url = "/openapi.json" if expose_docs else None
+        openapi_url = OPENAPI_URL
         root_path = os.getenv("ROOT_PATH", "")
 
         # 태그 메타데이터 정의

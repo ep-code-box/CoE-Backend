@@ -1,4 +1,41 @@
 services:
+
+  coe:
+    build:
+      context: .
+      network: host
+      args:
+        - DEV=true
+      dockerfile: Dockerfile
+    restart: on-failure
+    env_file:
+      - ./.env
+    environment:
+      PYTHONPATH: /app
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./api:/app/api"
+      - "./config:/app/config"
+      - "./core:/app/core"
+      - "./dbmig:/app/dbmig"
+      - "./external_tool_schemas:/app/external_tool_schemas"
+      - "./routers:/app/routers"
+      - "./scripts:/app/scripts"
+      - "./services:/app/services"
+      - "./tests:/app/tests"
+      - "./tools:/app/tools"
+      - "./utils:/app/utils"
+      - "./app.py:/app/app.py"
+      - "./main.py:/app/main.py"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - axstudio-dev
+
   mariadb:
     image: mariadb:11.4
     container_name: coe-mariadb
@@ -18,23 +55,27 @@ services:
       timeout: 5s
       retries: 20
 
-  prod_chroma:
-    image: chromadb/chroma:latest
-    container_name: prod_chroma
-    entrypoint: ["chroma"]
-    command: ["run", "--host", "0.0.0.0", "--port", "8002", "--path", "/chroma/chroma"]
-    ports:
-      - "8002:8002"
-    volumes:
-      - chroma_data:/chroma/chroma
+    networks:
+      - axstudio-dev
+  # prod_chroma:
+  #   image: chromadb/chroma:latest
+  #   container_name: prod_chroma
+  #   entrypoint: ["chroma"]
+  #   command: ["run", "--host", "0.0.0.0", "--port", "8002", "--path", "/chroma/chroma"]
+  #   ports:
+  #     - "8002:8002"
+  #   volumes:
+  #     - chroma_data:/chroma/chroma
 
   redis:
     image: redis:7-alpine
     container_name: coe-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "$REDIS_PASSWORD"]
     ports:
       - "${REDIS_PORT:-6379}:6379"
+    environment:
+      - REDIS_PASSWORD=$REDIS_PASSWORD
     volumes:
       - redis_data:/data
     healthcheck:
@@ -42,8 +83,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - axstudio-dev
 
 volumes:
   mariadb_data:
   chroma_data:
   redis_data:
+
+networks:
+  axstudio-dev:
+    external: true
