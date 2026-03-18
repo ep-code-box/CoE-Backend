@@ -10,6 +10,100 @@ import re
 from typing import Dict, Any, Optional, List
 from core.schemas import ExecuteFlowResponse
 
+# ──────────────────────────────────────────────────────────────────────
+# langflow ↔ lfx Message 클래스 호환 패치
+# ──────────────────────────────────────────────────────────────────────
+# 플로우 JSON 에 포함된 SKAX 에이전트 컴포넌트가 lfx.schema.message.Message 를
+# 사용하고, langflow.memory.aadd_messages 는 langflow.schema.message.Message 의
+# isinstance 체크를 수행합니다. 두 클래스는 기능적으로 동일하지만 서로 다른 모듈에서
+# 로드되어 isinstance 검사에 실패하기 때문에, 좀 더 유연한 체크로 교체합니다.
+# ──────────────────────────────────────────────────────────────────────
+def _apply_langflow_message_compat_patch():
+    """Monkey-patch langflow.memory.aadd_messages to accept lfx Message objects."""
+    try:
+        import langflow.memory as _lf_memory
+        from langflow.schema.message import Message as LfMessage
+
+        _original_aadd = _lf_memory.aadd_messages
+
+        async def _patched_aadd_messages(messages, flow_id=None):
+            if not isinstance(messages, list):
+                messages = [messages]
+
+            # 유연한 타입 체크: 클래스 이름이 'Message'이고 필요 속성을 갖추면 통과
+            def _is_message_like(obj):
+                if isinstance(obj, LfMessage):
+                    return True
+                # lfx.schema.message.Message 등 호환 타입 허용
+                return (
+                    type(obj).__name__ == "Message"
+                    and hasattr(obj, "text")
+                    and hasattr(obj, "sender")
+                )
+
+            if not all(_is_message_like(m) for m in messages):
+                types = ", ".join([str(type(m)) for m in messages])
+                msg = f"The messages must be instances of Message. Found: {types}"
+                raise ValueError(msg)
+
+            # 원래 함수의 isinstance 체크를 이미 통과시켰으므로,
+            # 기존 로직의 나머지 부분을 직접 실행
+            from langflow.services.database.models.message import MessageTable
+            from langflow.services.deps import session_scope
+            from langflow.memory import aadd_messagetables
+            from langflow.logging.logger import logger
+
+            try:
+                from uuid import UUID
+
+                def _normalize_message(m):
+                    """lfx Message → langflow Message 호환 변환"""
+                    # session_id가 UUID 객체이면 str로 변환
+                    if hasattr(m, 'session_id') and isinstance(m.session_id, UUID):
+                        try:
+                            m.session_id = str(m.session_id)
+                        except Exception:
+                            pass
+                    # flow_id도 마찬가지
+                    if hasattr(m, 'flow_id') and isinstance(m.flow_id, UUID):
+                        try:
+                            m.flow_id = str(m.flow_id)
+                        except Exception:
+                            pass
+                    # id 필드도
+                    if hasattr(m, 'id') and isinstance(getattr(m, 'id', None), UUID):
+                        try:
+                            m.id = str(m.id)
+                        except Exception:
+                            pass
+                    # lfx Message가 아닌 langflow Message로 변환 시도
+                    if not isinstance(m, LfMessage):
+                        try:
+                            dump = m.model_dump() if hasattr(m, 'model_dump') else m.dict()
+                            # UUID 값 일괄 문자열 변환
+                            for k, v in dump.items():
+                                if isinstance(v, UUID):
+                                    dump[k] = str(v)
+                            return LfMessage(**dump)
+                        except Exception:
+                            pass
+                    return m
+
+                normalized = [_normalize_message(m) for m in messages]
+                messages_models = [MessageTable.from_message(m, flow_id=flow_id) for m in normalized]
+                async with session_scope() as session:
+                    messages_models = await aadd_messagetables(messages_models, session)
+                return [await LfMessage.create(**mm.model_dump()) for mm in messages_models]
+            except Exception as e:
+                await logger.aexception(e)
+                raise
+
+        _lf_memory.aadd_messages = _patched_aadd_messages
+    except ImportError:
+        pass  # langflow 라이브러리 미설치 시 무시
+
+_apply_langflow_message_compat_patch()
+
 # LangFlow 실행 함수 호환 계층
 # 다양한 LangFlow 버전에서 이름/경로가 바뀌어 import 에러가 날 수 있으므로
 # 지연 임포트 + 다중 후보를 시도하고, 전부 실패하면 우아하게 에러를 반환합니다.
