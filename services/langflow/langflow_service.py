@@ -359,7 +359,11 @@ class LangFlowExecutionService:
                     dumped = json.dumps(data_to_process, ensure_ascii=False)
                     print(f"=============================")
                     print(f"[LANGFLOW] DEBUG full payload type: {type(payload)}")
-                    print(f"[LANGFLOW] DEBUG payload preview: {dumped[:1000]}")
+                    
+                    import re
+                    extracted_urls = set(re.findall(r"https?://[^\s\"'{}]+", dumped))
+                    print(f"[LANGFLOW] DEBUG all URLs found in payload: {extracted_urls}")
+                    print(f"=============================")
                     
                     targets = ["sk-axstudio.com", "coe-backend", "20.214.9.217", "greatcoe.cafe24.com"]
                     patched_count = 0
