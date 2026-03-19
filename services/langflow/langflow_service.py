@@ -350,38 +350,45 @@ class LangFlowExecutionService:
             )
 
             def _patch_skax_backend_url(payload: Dict[str, Any]) -> None:
-                """Rewrite BACKEND_BASE_URL in SKAX agent code nodes."""
+                """Rewrite ANY backend URL or similar in LangFlow JSON robustly."""
+                from core.logging_config import logger as core_logger
+                import json
+                
                 try:
-                    dg = payload.get("data") or {}
-                    nodes = dg.get("nodes") or []
-                    for node in nodes:
-                        if not isinstance(node, dict):
+                    # JSON 전체 텍스트에서 패턴 검색 (필드명 구분 없이 공격적으로 검색)
+                    dumped = json.dumps(payload, ensure_ascii=False)
+                    
+                    # 검색 패턴:
+                    # (키워드들) : 변수명이나 필드명에 다음 단어 중 하나라도 포함된 경우
+                    # [:=]\s* : 콜론(:)이나 등호(=) 중 어느 하나라도 사용된 경우
+                    # ["']https?://[^"']+/v1/?["'] : http/https 및 경로 지원 (끝에 / 여부 무관)
+                    pattern = r'["\']?([^"\'\s]*?(?:BACKEND|BASE|API|URL|ENDPOINT|HOST|TARGET|SKAX)[^"\'\s]*?)["\']?\s*[:=]\s*["\'](https?://[^"\']+/v1/?)["\']'
+                    
+                    matches = re.findall(pattern, dumped, re.IGNORECASE)
+                    if not matches:
+                        core_logger.info("[LANGFLOW] No URL patterns found to patch in flow data.")
+                        return
+
+                    patched_count = 0
+                    for field_name, old_url in matches:
+                        # 이미 _SELF_BACKEND_URL(localhost)로 되어 있으면 스킵
+                        if "localhost" in old_url or "127.0.0.1" in old_url:
                             continue
-                        nd = node.get("data") or {}
-                        nn = nd.get("node") or {}
-                        tmpl = nn.get("template") or {}
-                        code_block = tmpl.get("code")
-                        if not isinstance(code_block, dict):
-                            continue
-                        code_val = code_block.get("value", "")
-                        if "BACKEND_BASE_URL" not in code_val:
-                            continue
-                        # Replace hardcoded external URLs with localhost (supports both http and https)
-                        patched = re.sub(
-                            r'BACKEND_BASE_URL\s*=\s*["\']https?://[^"\']+/v1["\']',
-                            f'BACKEND_BASE_URL = "{_SELF_BACKEND_URL}"',
-                            code_val,
-                        )
-                        if patched != code_val:
-                            from core.logging_config import logger as core_logger
-                            core_logger.info(
-                                "[LANGFLOW] Component URL patched: %s → %s",
-                                code_val.split("\n")[0], # 보안상 첫 줄만 로그
-                                _SELF_BACKEND_URL
-                            )
-                            code_block["value"] = patched
-                except Exception:
-                    pass  # best-effort patching
+                            
+                        core_logger.info("[LANGFLOW] Found target to patch: %s = %s", field_name, old_url)
+                        # 원본 URL에서 trailing slash가 있는 경우를 고려하여 치환 로직 수행
+                        # (단순 replace는 old_url이 부분 문자열일 때 위험하므로 정확한 매칭 대상만 치환)
+                        dumped = dumped.replace(f'"{old_url}"', f'"{_SELF_BACKEND_URL}"').replace(f"'{old_url}'", f"'{_SELF_BACKEND_URL}'")
+                        patched_count += 1
+                    
+                    if patched_count > 0:
+                        new_payload = json.loads(dumped)
+                        payload.update(new_payload)
+                        core_logger.info("[LANGFLOW] Successfully patched %d URL(s) to %s", patched_count, _SELF_BACKEND_URL)
+                    
+                except Exception as e:
+                    core_logger.error("[LANGFLOW] Patch conversion error: %s", str(e))
+                    pass
 
             _patch_skax_backend_url(flow_data)
 
