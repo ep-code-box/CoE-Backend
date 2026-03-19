@@ -1135,6 +1135,7 @@ async def chat_completions(
     return await handle_agent_request(req, agent, req.model, request, db)
 
 
+@router.post("/internal/chat/completions")
 @router.post("/internal/completions")
 async def internal_completions(req: OpenAIChatRequest):
     """
