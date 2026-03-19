@@ -913,7 +913,7 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
 
         logger.debug(f"[LLM Proxy] effective params keys: {list(params.keys())}")
 
-        response = model_client.chat.completions.create(**params)
+        response = await model_client.chat.completions.create(**params)
 
         if req.stream:
             return StreamingResponse(
@@ -1133,3 +1133,24 @@ async def chat_completions(
     """
     agent = agent_info["agent"]
     return await handle_agent_request(req, agent, req.model, request, db)
+
+
+@router.post("/internal/completions")
+async def internal_completions(req: OpenAIChatRequest):
+    """
+    내부 서비스용 경량 LLM 프록시.
+
+    LangFlow 커스텀 컴포넌트 등 내부 서비스가 LLM 응답만 필요할 때 사용합니다.
+    Session 관리, PII 검사, 도구 로딩, Auto-Route, Agent Graph 실행 등
+    전체 Agent 파이프라인을 건너뛰고 바로 LLM API를 호출합니다.
+
+    - 모델 라우팅: model_id → 적절한 provider 클라이언트
+    - LLM API 직접 호출 (AsyncOpenAI)
+    - 스트리밍 지원
+    """
+    logger.info(
+        "[INTERNAL PROXY] model=%s messages=%d",
+        req.model,
+        len(req.messages) if req.messages else 0,
+    )
+    return await handle_llm_proxy_request(req)

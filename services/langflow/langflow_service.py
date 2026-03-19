@@ -340,9 +340,11 @@ class LangFlowExecutionService:
             # 플로우 JSON에 하드코딩된 외부/크로스-컴포즈 URL
             # (예: http://coe-backend-coe-1:8000/v1) 은 자기 자신의 네트워크에서
             # 해석할 수 없으므로 localhost로 치환합니다.
+            # /v1/internal 경로를 사용하여 Agent 파이프라인(도구 로딩, Auto-Route 등)을
+            # 건너뛰고 LLM API만 직접 호출하도록 합니다. (성능 최적화)
             import os
             _SELF_BACKEND_URL = os.getenv(
-                "LANGFLOW_SELF_BACKEND_URL", "http://localhost:8000/v1"
+                "LANGFLOW_SELF_BACKEND_URL", "http://localhost:8000/v1/internal"
             )
 
             def _patch_skax_backend_url(payload: Dict[str, Any]) -> None:
