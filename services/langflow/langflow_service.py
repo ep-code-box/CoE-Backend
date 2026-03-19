@@ -359,32 +359,39 @@ class LangFlowExecutionService:
                     # JSON 전체 텍스트에서 패턴 검색 (필드명 구분 없이 공격적으로 검색)
                     dumped = json.dumps(payload, ensure_ascii=False)
                     
-                    # DEBUG: 실제 어떤 내용이 들어있는지 일부 확인
-                    logger.info("[LANGFLOW] DEBUG full payload preview: %s", dumped[:2000])
+                    # DEBUG: 실제 어떤 내용이 들어있는지 일부 확인 (처음 3000자)
+                    logger.info("[LANGFLOW] DEBUG full payload preview: %s", dumped[:3000])
                     
-                    # 검색 패턴 설명:
-                    pattern = r'["\']?([^"\'\s]*?(?:BACKEND|BASE|API|URL|ENDPOINT|HOST|TARGET|SKAX)[^"\'\s]*?)["\']?\s*[:=]\s*["\'](https?://[^"\']+/v1/?)["\']'
-                    
-                    matches = re.findall(pattern, dumped, re.IGNORECASE)
-                    if not matches:
-                        logger.info("[LANGFLOW] No URL patterns found to patch in flow data.")
-                        return
-
+                    # 도메인 기반 직접 치환 (가장 확실한 방법)
+                    # sk-axstudio.com 이나 coe-backend 로 시작하는 URL들을 찾아서 localhost:8000/v1/internal 로 바꿉니다.
+                    targets = ["sk-axstudio.com", "coe-backend", "20.214.9.217"]
                     patched_count = 0
-                    for field_name, old_url in matches:
-                        # 이미 _SELF_BACKEND_URL(localhost)로 되어 있으면 스킵
-                        if "localhost" in old_url or "127.0.0.1" in old_url:
-                            continue
+                    
+                    for target in targets:
+                        if target in dumped:
+                            # 예: https://sk-axstudio.com/v1 -> http://localhost:8000/v1/internal
+                            # 다양한 경로 변종 대응 (/v1, /v1/, /)
+                            # 정규표현식으로 해당 도메인을 포함하는 URL 전체를 찾습니다.
+                            pattern = rf'https?://{target}[^"\'\s]*?(/v1/?)'
+                            matches = re.findall(pattern, dumped)
                             
-                        logger.info("[LANGFLOW] Found target to patch: %s = %s", field_name, old_url)
-                        # 원본 URL에서 trailing slash가 있는 경우를 고려하여 치환 로직 수행
-                        dumped = dumped.replace(f'"{old_url}"', f'"{_SELF_BACKEND_URL}"').replace(f"'{old_url}'", f"'{_SELF_BACKEND_URL}'")
-                        patched_count += 1
+                            for path_suffix in set(matches):
+                                old_url_pattern = f'http://{target}{path_suffix}'
+                                old_url_pattern_s = f'https://{target}{path_suffix}'
+                                
+                                if old_url_pattern in dumped:
+                                    dumped = dumped.replace(old_url_pattern, _SELF_BACKEND_URL)
+                                    patched_count += 1
+                                if old_url_pattern_s in dumped:
+                                    dumped = dumped.replace(old_url_pattern_s, _SELF_BACKEND_URL)
+                                    patched_count += 1
                     
                     if patched_count > 0:
                         new_payload = json.loads(dumped)
                         payload.update(new_payload)
-                        logger.info("[LANGFLOW] Successfully patched %d URL(s) to %s", patched_count, _SELF_BACKEND_URL)
+                        logger.info("[LANGFLOW] Successfully patched %d domain-based URL(s) to %s", patched_count, _SELF_BACKEND_URL)
+                    else:
+                        logger.info("[LANGFLOW] No backend domain patterns found to patch.")
                     
                 except Exception as e:
                     logger.error("[LANGFLOW] Patch conversion error: %s", str(e))
