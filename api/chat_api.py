@@ -703,6 +703,16 @@ async def handle_agent_request(
     start_time = time.time()
     chat_service = get_chat_service(db)
 
+    # [DEBUG/FIX] req.context 유실 방지: Raw JSON에서 직접 추출 시도
+    if not req.context:
+        try:
+            raw_body = await request.json()
+            if raw_body and "context" in raw_body:
+                req.context = raw_body["context"]
+                logger.info("[FIX] Recovered missing context from raw body: %s", req.context)
+        except Exception:
+            pass
+
     session, current_session_id, history_dicts, current_user_content = await _get_or_create_session_and_history(
         req, chat_service, request
     )
