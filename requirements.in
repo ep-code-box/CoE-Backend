@@ -12,6 +12,7 @@ pydantic
 python-dotenv
 sqlalchemy
 pymysql
+aiomysql
 cryptography
 python-jose[cryptography]
 passlib[bcrypt]
