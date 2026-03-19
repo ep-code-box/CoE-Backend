@@ -366,13 +366,19 @@ class LangFlowExecutionService:
                         code_val = code_block.get("value", "")
                         if "BACKEND_BASE_URL" not in code_val:
                             continue
-                        # Replace hardcoded external URLs with localhost
+                        # Replace hardcoded external URLs with localhost (supports both http and https)
                         patched = re.sub(
-                            r'BACKEND_BASE_URL\s*=\s*["\']http://[^"\']+/v1["\']',
+                            r'BACKEND_BASE_URL\s*=\s*["\']https?://[^"\']+/v1["\']',
                             f'BACKEND_BASE_URL = "{_SELF_BACKEND_URL}"',
                             code_val,
                         )
                         if patched != code_val:
+                            from core.logging_config import logger as core_logger
+                            core_logger.info(
+                                "[LANGFLOW] Component URL patched: %s → %s",
+                                code_val.split("\n")[0], # 보안상 첫 줄만 로그
+                                _SELF_BACKEND_URL
+                            )
                             code_block["value"] = patched
                 except Exception:
                     pass  # best-effort patching
