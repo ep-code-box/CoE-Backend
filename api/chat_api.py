@@ -921,7 +921,13 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
                 media_type="text/event-stream",
             )
         else:
-            return response.model_dump(exclude_none=True)
+            # response가 dict가 아니면 변환 시도
+            if hasattr(response, "model_dump"):
+                return response.model_dump(exclude_none=True)
+            elif hasattr(response, "dict"):
+                return response.dict(exclude_none=True)
+            else:
+                return response
 
     except HTTPException:
         raise
@@ -1150,7 +1156,7 @@ async def internal_completions(req: OpenAIChatRequest):
     - 스트리밍 지원
     """
     logger.info(
-        "[INTERNAL PROXY] model=%s messages=%d",
+        "[INTERNAL PROXY] request model=%s messages=%d",
         req.model,
         len(req.messages) if req.messages else 0,
     )
