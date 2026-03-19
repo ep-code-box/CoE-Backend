@@ -359,10 +359,10 @@ class LangFlowExecutionService:
                     # JSON 전체 텍스트에서 패턴 검색 (필드명 구분 없이 공격적으로 검색)
                     dumped = json.dumps(payload, ensure_ascii=False)
                     
+                    # DEBUG: 실제 어떤 내용이 들어있는지 일부 확인
+                    logger.info("[LANGFLOW] DEBUG full payload preview: %s", dumped[:2000])
+                    
                     # 검색 패턴 설명:
-                    # (키워드들) : 변수명이나 필드명에 다음 단어 중 하나라도 포함된 경우
-                    # [:=]\s* : 콜론(:)이나 등호(=) 중 어느 하나라도 사용된 경우
-                    # ["']https?://[^"']+/v1/?["'] : http/https 및 경로 지원
                     pattern = r'["\']?([^"\'\s]*?(?:BACKEND|BASE|API|URL|ENDPOINT|HOST|TARGET|SKAX)[^"\'\s]*?)["\']?\s*[:=]\s*["\'](https?://[^"\']+/v1/?)["\']'
                     
                     matches = re.findall(pattern, dumped, re.IGNORECASE)
