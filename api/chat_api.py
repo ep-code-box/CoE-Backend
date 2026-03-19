@@ -703,7 +703,7 @@ async def handle_agent_request(
     start_time = time.time()
     chat_service = get_chat_service(db)
 
-    # [DEBUG/FIX] req.context 유실 방지: Raw JSON에서 직접 추출 시도
+    # [DEBUG/FIX] req.context 유실 방지: Raw JSON에서 직접 추출 시도 및 기본값 강제 설정
     if not req.context:
         try:
             raw_body = await request.json()
@@ -712,6 +712,11 @@ async def handle_agent_request(
                 logger.info("[FIX] Recovered missing context from raw body: %s", req.context)
         except Exception:
             pass
+    
+    # 여전히 비어있다면 테스트를 위해 강제로 Chat box 설정
+    if not req.context:
+        req.context = "Chat box"
+        logger.info("[TEMP FIX] Forced context to 'Chat box' for testing")
 
     session, current_session_id, history_dicts, current_user_content = await _get_or_create_session_and_history(
         req, chat_service, request
