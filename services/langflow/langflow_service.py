@@ -365,30 +365,16 @@ class LangFlowExecutionService:
                     print(f"[LANGFLOW] DEBUG all URLs found in payload: {extracted_urls}")
                     print(f"=============================")
                     
-                    targets = ["sk-axstudio.com", "coe-backend", "20.214.9.217", "greatcoe.cafe24.com"]
-                    patched_count = 0
+                    import re
+                    # 타겟 패턴들을 찾아서 일괄적으로 _SELF_BACKEND_URL로 교체하는 정규식
+                    # 매칭 대상: sk-axstudio.com, coe-backend-coe-1(:포트), 20.214.9.217
+                    pattern = r"https?://(?:sk-axstudio\.com|coe-backend-coe-1(?::\d+)?|20\.214\.9\.217(?::\d+)?)/v1"
                     
-                    for target in targets:
-                        if target in dumped:
-                            # 다양한 경로 패턴에 대응하는 무식하지만 명확한 문자열 치환
-                            old_url_v1 = f'http://{target}/v1'
-                            old_url_v1_s = f'https://{target}/v1'
-                            if old_url_v1 in dumped:
-                                dumped = dumped.replace(old_url_v1, _SELF_BACKEND_URL)
-                                patched_count += 1
-                            if old_url_v1_s in dumped:
-                                dumped = dumped.replace(old_url_v1_s, _SELF_BACKEND_URL)
-                                patched_count += 1
-                                
-                            # 포트가 명시된 경우
-                            old_url_port = f'http://{target}:8000/v1'
-                            if old_url_port in dumped:
-                                dumped = dumped.replace(old_url_port, _SELF_BACKEND_URL)
-                                patched_count += 1
+                    dumped_new, num_subs = re.subn(pattern, _SELF_BACKEND_URL, dumped)
 
-                    if patched_count > 0:
-                        print(f"[LANGFLOW] Successfully patched {patched_count} URL(s) to {_SELF_BACKEND_URL}")
-                        new_payload = json.loads(dumped)
+                    if num_subs > 0:
+                        print(f"[LANGFLOW] Successfully patched {num_subs} URL(s) to {_SELF_BACKEND_URL}")
+                        new_payload = json.loads(dumped_new)
                         # 원본이 문자열이었으면 패치된 문자열로, 객체면 업데이트된 객체로 반환
                         if is_string_payload:
                             return json.dumps(new_payload, ensure_ascii=False)
