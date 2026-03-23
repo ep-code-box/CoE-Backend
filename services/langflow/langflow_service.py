@@ -268,6 +268,11 @@ class LangFlowExecutionService:
         Returns:
             ExecuteFlowResponse: 실행 결과
         """
+        import os
+        os.environ["LANGFLOW_TRACING"] = "false"
+        os.environ["LANGFLOW_TRACING_ENABLED"] = "false"
+        os.environ["LANGFLOW_NO_TRACING"] = "true"
+
         start_time = time.time()
         
         if not inputs:
@@ -555,6 +560,8 @@ class LangFlowExecutionService:
 
             # langflow 러너 실행
             result_data = runner(flow_data, inputs)
+            if inspect.isawaitable(result_data):
+                result_data = await result_data
             
             # 실행 결과에서 실제 output 추출
             # LangFlow의 결과 구조에 따라 파싱 방식이 달라질 수 있습니다.
