@@ -10,6 +10,9 @@ router = APIRouter(tags=["📂 Models"])
 
 
 @router.get("/v1/models")
+@router.get("/v1/internal/models")
+@router.get("/v1/internal/v1/models")
+@router.get("/internal/models")
 async def list_models():
     """
     models.json에 정의된 사용 가능한 모든 모델의 목록을 반환합니다.

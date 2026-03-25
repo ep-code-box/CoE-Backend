@@ -10,6 +10,100 @@ import re
 from typing import Dict, Any, Optional, List
 from core.schemas import ExecuteFlowResponse
 
+# ──────────────────────────────────────────────────────────────────────
+# langflow ↔ lfx Message 클래스 호환 패치
+# ──────────────────────────────────────────────────────────────────────
+# 플로우 JSON 에 포함된 SKAX 에이전트 컴포넌트가 lfx.schema.message.Message 를
+# 사용하고, langflow.memory.aadd_messages 는 langflow.schema.message.Message 의
+# isinstance 체크를 수행합니다. 두 클래스는 기능적으로 동일하지만 서로 다른 모듈에서
+# 로드되어 isinstance 검사에 실패하기 때문에, 좀 더 유연한 체크로 교체합니다.
+# ──────────────────────────────────────────────────────────────────────
+def _apply_langflow_message_compat_patch():
+    """Monkey-patch langflow.memory.aadd_messages to accept lfx Message objects."""
+    try:
+        import langflow.memory as _lf_memory
+        from langflow.schema.message import Message as LfMessage
+
+        _original_aadd = _lf_memory.aadd_messages
+
+        async def _patched_aadd_messages(messages, flow_id=None):
+            if not isinstance(messages, list):
+                messages = [messages]
+
+            # 유연한 타입 체크: 클래스 이름이 'Message'이고 필요 속성을 갖추면 통과
+            def _is_message_like(obj):
+                if isinstance(obj, LfMessage):
+                    return True
+                # lfx.schema.message.Message 등 호환 타입 허용
+                return (
+                    type(obj).__name__ == "Message"
+                    and hasattr(obj, "text")
+                    and hasattr(obj, "sender")
+                )
+
+            if not all(_is_message_like(m) for m in messages):
+                types = ", ".join([str(type(m)) for m in messages])
+                msg = f"The messages must be instances of Message. Found: {types}"
+                raise ValueError(msg)
+
+            # 원래 함수의 isinstance 체크를 이미 통과시켰으므로,
+            # 기존 로직의 나머지 부분을 직접 실행
+            from langflow.services.database.models.message import MessageTable
+            from langflow.services.deps import session_scope
+            from langflow.memory import aadd_messagetables
+            from langflow.logging.logger import logger
+
+            try:
+                from uuid import UUID
+
+                def _normalize_message(m):
+                    """lfx Message → langflow Message 호환 변환"""
+                    # session_id가 UUID 객체이면 str로 변환
+                    if hasattr(m, 'session_id') and isinstance(m.session_id, UUID):
+                        try:
+                            m.session_id = str(m.session_id)
+                        except Exception:
+                            pass
+                    # flow_id도 마찬가지
+                    if hasattr(m, 'flow_id') and isinstance(m.flow_id, UUID):
+                        try:
+                            m.flow_id = str(m.flow_id)
+                        except Exception:
+                            pass
+                    # id 필드도
+                    if hasattr(m, 'id') and isinstance(getattr(m, 'id', None), UUID):
+                        try:
+                            m.id = str(m.id)
+                        except Exception:
+                            pass
+                    # lfx Message가 아닌 langflow Message로 변환 시도
+                    if not isinstance(m, LfMessage):
+                        try:
+                            dump = m.model_dump() if hasattr(m, 'model_dump') else m.dict()
+                            # UUID 값 일괄 문자열 변환
+                            for k, v in dump.items():
+                                if isinstance(v, UUID):
+                                    dump[k] = str(v)
+                            return LfMessage(**dump)
+                        except Exception:
+                            pass
+                    return m
+
+                normalized = [_normalize_message(m) for m in messages]
+                messages_models = [MessageTable.from_message(m, flow_id=flow_id) for m in normalized]
+                async with session_scope() as session:
+                    messages_models = await aadd_messagetables(messages_models, session)
+                return [await LfMessage.create(**mm.model_dump()) for mm in messages_models]
+            except Exception as e:
+                await logger.aexception(e)
+                raise
+
+        _lf_memory.aadd_messages = _patched_aadd_messages
+    except ImportError:
+        pass  # langflow 라이브러리 미설치 시 무시
+
+_apply_langflow_message_compat_patch()
+
 # LangFlow 실행 함수 호환 계층
 # 다양한 LangFlow 버전에서 이름/경로가 바뀌어 import 에러가 날 수 있으므로
 # 지연 임포트 + 다중 후보를 시도하고, 전부 실패하면 우아하게 에러를 반환합니다.
@@ -78,7 +172,8 @@ def _resolve_langflow_runner():
                 elif 'input_value' in params:
                     # Some versions require a positional/keyword 'input_value'
                     # Provide a simple string if dict given
-                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {})
+                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or (inputs or {})
+                    print(f"DEBUG: LangFlow inputs: {inputs}, extracted ival: {ival}")
                     kwargs['input_value'] = ival
                 elif 'data' in params and 'flow' in kwargs:
                     # if data exists and not used for graph, use for inputs
@@ -94,7 +189,7 @@ def _resolve_langflow_runner():
                 except Exception:
                     try:
                         # try input_value positional if function expects it
-                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or inputs or {})  # type: ignore
+                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or inputs or {})  # type: ignore
                     except Exception:
                         # last resort: flow only
                         return run_flow_from_json(flow=flow_data, input_value="")  # type: ignore
@@ -127,7 +222,7 @@ def _resolve_langflow_runner():
                 elif 'input_dict' in params:
                     kwargs['input_dict'] = inputs or {}
                 elif 'input_value' in params:
-                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {})
+                    ival = inputs if isinstance(inputs, (str, bytes)) else (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or (inputs or {})
                     kwargs['input_value'] = ival
                 if 'tweaks' in params and 'tweaks' not in kwargs:
                     kwargs['tweaks'] = None
@@ -137,7 +232,7 @@ def _resolve_langflow_runner():
                     return run_flow_from_json(flow=flow_data, input=inputs or {})  # type: ignore
                 except Exception:
                     try:
-                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or inputs or {})  # type: ignore
+                        return run_flow_from_json(flow_data, (inputs or {}).get('input_value') or (inputs or {}).get('message') or (inputs or {}).get('user_input') or inputs or {})  # type: ignore
                     except Exception:
                         return run_flow_from_json(flow=flow_data)  # type: ignore
 
@@ -173,6 +268,11 @@ class LangFlowExecutionService:
         Returns:
             ExecuteFlowResponse: 실행 결과
         """
+        import os
+        os.environ["LANGFLOW_TRACING"] = "false"
+        os.environ["LANGFLOW_TRACING_ENABLED"] = "false"
+        os.environ["LANGFLOW_NO_TRACING"] = "true"
+
         start_time = time.time()
         
         if not inputs:
@@ -239,6 +339,64 @@ class LangFlowExecutionService:
                     pass
 
             _normalize_flow_payload(flow_data)
+
+            # SKAX 에이전트 노드의 BACKEND_BASE_URL을 localhost로 패치
+            # coe-backend 컨테이너가 직접 플로우를 실행할 때,
+            # 플로우 JSON에 하드코딩된 외부/크로스-컴포즈 URL
+            # (예: http://coe-backend-coe-1:8000/v1) 은 자기 자신의 네트워크에서
+            # 해석할 수 없으므로 localhost로 치환합니다.
+            # (예: http://coe-backend-coe-1:8000/v1) 은 자기 자신의 네트워크에서
+            # 해석할 수 없으므로 localhost로 치환합니다.
+            # /v1/internal 경로를 사용하여 Agent 파이프라인(도구 로딩, Auto-Route 등)을
+            # 건너뛰고 LLM API만 직접 호출하도록 합니다. (성능 최적화)
+            import os
+            _SELF_BACKEND_URL = os.getenv(
+                "LANGFLOW_SELF_BACKEND_URL", "http://localhost:8000/v1/internal"
+            )
+
+            def _patch_skax_backend_url(payload: Any) -> Any:
+                import json
+                try:
+                    # 입력값이 문자열이면 dict로 변환 시도
+                    is_string_payload = isinstance(payload, str)
+                    data_to_process = json.loads(payload) if is_string_payload else payload
+                    
+                    dumped = json.dumps(data_to_process, ensure_ascii=False)
+                    print(f"=============================")
+                    print(f"[LANGFLOW] DEBUG full payload type: {type(payload)}")
+                    
+                    import re
+                    extracted_urls = set(re.findall(r"https?://[^\s\"'{}]+", dumped))
+                    print(f"[LANGFLOW] DEBUG all URLs found in payload: {extracted_urls}")
+                    print(f"=============================")
+                    
+                    import re
+                    # 타겟 패턴들을 찾아서 일괄적으로 _SELF_BACKEND_URL로 교체하는 정규식
+                    # 매칭 대상: sk-axstudio.com, coe-backend-coe-1(:포트), 20.214.9.217
+                    pattern = r"https?://(?:sk-axstudio\.com|coe-backend-coe-1(?::\d+)?|20\.214\.9\.217(?::\d+)?)/v1"
+                    
+                    dumped_new, num_subs = re.subn(pattern, _SELF_BACKEND_URL, dumped)
+
+                    if num_subs > 0:
+                        print(f"[LANGFLOW] Successfully patched {num_subs} URL(s) to {_SELF_BACKEND_URL}")
+                        new_payload = json.loads(dumped_new)
+                        # 원본이 문자열이었으면 패치된 문자열로, 객체면 업데이트된 객체로 반환
+                        if is_string_payload:
+                            return json.dumps(new_payload, ensure_ascii=False)
+                        else:
+                            if isinstance(payload, dict):
+                                payload.clear()
+                                payload.update(new_payload)
+                            return payload
+                    else:
+                        print("[LANGFLOW] No backend patterns found to patch in payload.")
+                        return payload
+
+                except Exception as e:
+                    print(f"[LANGFLOW] Patch conversion error: {str(e)}")
+                    return payload
+
+            flow_data = _patch_skax_backend_url(flow_data)
 
             # 호환 가능한 LangFlow 러너 확인
             runner = _resolve_langflow_runner()
@@ -402,6 +560,8 @@ class LangFlowExecutionService:
 
             # langflow 러너 실행
             result_data = runner(flow_data, inputs)
+            if inspect.isawaitable(result_data):
+                result_data = await result_data
             
             # 실행 결과에서 실제 output 추출
             # LangFlow의 결과 구조에 따라 파싱 방식이 달라질 수 있습니다.

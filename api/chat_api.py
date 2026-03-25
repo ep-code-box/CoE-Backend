@@ -626,7 +626,7 @@ async def _handle_guide_agent_flow(
 
     if suggestion:
         tool_name = suggestion.get("tool_name")
-        if tool_name and tool_name in server_functions:
+        if tool_name and (tool_name in server_functions or tool_name == "execute_langflow"):
             action_payload = {
                 "tool_name": tool_name,
                 "tool_type": suggestion.get("tool_type"),
@@ -702,6 +702,16 @@ async def handle_agent_request(
     """
     start_time = time.time()
     chat_service = get_chat_service(db)
+
+    # [DEBUG/FIX] req.context 유실 방지: Raw JSON에서 직접 추출 시도
+    if not req.context:
+        try:
+            raw_body = await request.json()
+            if raw_body and "context" in raw_body:
+                req.context = raw_body["context"]
+                logger.info("[FIX] Recovered missing context from raw body: %s", req.context)
+        except Exception:
+            pass
 
     session, current_session_id, history_dicts, current_user_content = await _get_or_create_session_and_history(
         req, chat_service, request
@@ -913,7 +923,7 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
 
         logger.debug(f"[LLM Proxy] effective params keys: {list(params.keys())}")
 
-        response = model_client.chat.completions.create(**params)
+        response = await model_client.chat.completions.create(**params)
 
         if req.stream:
             return StreamingResponse(
@@ -921,7 +931,13 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
                 media_type="text/event-stream",
             )
         else:
-            return response.model_dump(exclude_none=True)
+            # response가 dict가 아니면 변환 시도
+            if hasattr(response, "model_dump"):
+                return response.model_dump(exclude_none=True)
+            elif hasattr(response, "dict"):
+                return response.dict(exclude_none=True)
+            else:
+                return response
 
     except HTTPException:
         raise
@@ -1133,3 +1149,25 @@ async def chat_completions(
     """
     agent = agent_info["agent"]
     return await handle_agent_request(req, agent, req.model, request, db)
+
+
+@router.post("/internal/chat/completions")
+@router.post("/internal/completions")
+async def internal_completions(req: OpenAIChatRequest):
+    """
+    내부 서비스용 경량 LLM 프록시.
+
+    LangFlow 커스텀 컴포넌트 등 내부 서비스가 LLM 응답만 필요할 때 사용합니다.
+    Session 관리, PII 검사, 도구 로딩, Auto-Route, Agent Graph 실행 등
+    전체 Agent 파이프라인을 건너뛰고 바로 LLM API를 호출합니다.
+
+    - 모델 라우팅: model_id → 적절한 provider 클라이언트
+    - LLM API 직접 호출 (AsyncOpenAI)
+    - 스트리밍 지원
+    """
+    logger.info(
+        "[INTERNAL PROXY] request model=%s messages=%d",
+        req.model,
+        len(req.messages) if req.messages else 0,
+    )
+    return await handle_llm_proxy_request(req)

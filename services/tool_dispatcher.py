@@ -558,6 +558,94 @@ def get_available_tools_for_context(
     logger.info(
         f"Found {len(all_schemas)} tools available for context='{context}' group='{normalized_group}'."
     )
+
+    # 2) LangFlow 도구 추가
+    if context:
+        db = SessionLocal()
+        try:
+            # 해당 컨텍스트에 매핑된 모든 Flow ID 조회
+            logger.info(f"Checking for LangFlow mappings for context='{context}'")
+            # DB의 모든 매핑을 가져와서 디버깅 로그 출력
+            all_maps = db.query(LangflowToolMapping).all()
+            logger.debug(f"Total mappings in DB: {len(all_maps)}")
+            
+            # 대소문자 무시 및 공백 제거 매칭 시도
+            target_ctx = context.strip().lower()
+            matching_mappings = [
+                m for m in all_maps 
+                if (m.context or "").strip().lower() == target_ctx
+            ]
+            
+            logger.info(f"Found {len(matching_mappings)} LangFlow mappings for context='{context}'")
+
+            if matching_mappings:
+                # 중복 방지를 위한 flow_id 집합
+                flow_ids = {m.flow_id for m in matching_mappings}
+                
+                # 활성화된 Flow 객체들 조회
+                active_flows = db.query(LangFlow).filter(
+                    LangFlow.flow_id.in_(flow_ids),
+                    LangFlow.is_active == True
+                ).all()
+
+                logger.info(f"Found {len(active_flows)} active flows for the matched mappings.")
+
+                for lf in active_flows:
+                    # 그룹 필터링 적용 확인
+                    allowed, _ = _flow_allowed_in_context(db, lf, context, group_name, apply_filters)
+                    if not allowed:
+                        logger.debug(f"Flow '{lf.name}' restricted by group filtering.")
+                        continue
+
+                    # OpenAI 호환 스키마 생성
+                    # Flow 이름을 도구 이름으로 사용 (dispatch_and_execute에서 인식 가능)
+                    tool_desc = lf.description or f"Execute the '{lf.name}' flow."
+                    schema = {
+                        "type": "function",
+                        "function": {
+                            "name": lf.name,
+                            "description": tool_desc,
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "user_input": {
+                                        "type": "string",
+                                        "description": "Input text or data for the flow."
+                                    }
+                                },
+                            }
+                        }
+                    }
+                    all_schemas.append(schema)
+
+                    # 실행 함수 매핑 (run_langflow_tool을 호출하는 래퍼)
+                    # lf 객체를 클로저에 고정하기 위해 기본값 인자 사용
+                    def make_executor(flow_obj=lf):
+                        async def executor(tool_input: Optional[Any] = None, **kwargs):
+                            # kwargs에는 state 등이 포함되어 전달됨
+                            state = kwargs.get("state")
+                            
+                            # tool_input이 문자열로 올 경우 딕셔너리로 변환 (flow가 user_input 키를 쓰므로)
+                            final_input = tool_input
+                            if isinstance(tool_input, str):
+                                final_input = {"user_input": tool_input}
+                            elif tool_input is None:
+                                final_input = {"user_input": ""}
+                            # 이미 딕셔너리라면 그대로 사용
+                            
+                            return await run_langflow_tool(flow_obj, final_input, state)
+                        return executor
+
+                    all_functions[lf.name] = make_executor()
+                    logger.info(f"Dynamically injected LangFlow tool: '{lf.name}' for context='{context}'")
+            else:
+                logger.debug(f"No mappings found for context '{context}'. Available contexts: {list(set(m.context for m in all_maps))}")
+
+        except Exception as e:
+            logger.error(f"Error injecting LangFlow tools for context '{context}': {e}", exc_info=True)
+        finally:
+            db.close()
+
     return all_schemas, all_functions
 
 def find_langflow_tool(
@@ -633,21 +721,14 @@ async def run_langflow_tool(langflow: LangFlow, tool_input: Optional[Dict[str, A
     찾아낸 LangFlow 도구를 실행합니다.
     """
     try:
-        # LangFlow의 엔드포인트(name)를 사용하여 실행 URL 구성
+        # LangFlow 실행 URL 구성 (/flows/run/ -> /run/ 으로 수정)
         endpoint_name = langflow.name
-        execution_url = f"{LANGFLOW_BASE_URL}/flows/run/{endpoint_name}"
+        execution_url = f"{LANGFLOW_BASE_URL}/run/{endpoint_name}"
 
-        # TODO: tool_input이 없으면 state['history']에서 정보를 추출하는 로직 구현
-        # 현재는 tool_input이 있는 경우만 가정합니다.
-        if tool_input is None:
-            # 이 부분은 추후 자연어 처리 등을 통해 입력값을 동적으로 생성해야 합니다.
-            logger.warning("tool_input is missing for LangFlow tool. This needs to be implemented.")
-            # 임시로 빈 입력을 전달하거나, 에러를 반환할 수 있습니다.
-            request_body = {"user_input": ""} # 또는 다른 기본값
-        else:
-            request_body = {"user_input": tool_input}
+        # request_body는 이미 make_executor에서 dict 형태로 넘어옴
+        request_body = tool_input if isinstance(tool_input, dict) else {"user_input": tool_input or ""}
 
-        logger.info(f"Calling LangFlow execution endpoint: {execution_url}")
+        logger.info(f"Calling LangFlow execution endpoint: {execution_url} with body: {request_body}")
         async with httpx.AsyncClient() as client:
             response = await client.post(execution_url, json=request_body, timeout=300.0)
             response.raise_for_status()  # 4xx, 5xx 에러 발생 시 예외 처리
@@ -663,7 +744,7 @@ async def run_langflow_tool(langflow: LangFlow, tool_input: Optional[Dict[str, A
                 outputs = payload["result"]
 
         content = _format_flow_outputs_for_chat(outputs)
-        logger.debug(
+        logger.info(
             "LangFlow '%s' responded with payload=%s | formatted=%s",
             endpoint_name,
             payload,

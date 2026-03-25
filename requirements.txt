@@ -1,6 +1,7 @@
 aiofile==3.9.0
 aiofiles==24.1.0
 aiohappyeyeballs==2.6.1
+aiomysql==0.2.0
 aiohttp==3.13.1
 aiohttp_retry==2.9.1
 aiolimiter==1.2.1
@@ -437,3 +438,4 @@ youtube_transcript_api==0.6.3
 zep_python==2.0.2
 zipp==3.23.0
 zstandard==0.23.0
+lfx
