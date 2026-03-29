@@ -161,7 +161,8 @@ class OpenAIChatRequest(BaseModel):
                 "messages": [
                     {"role": "user", "content": "안녕, 오늘 날씨 어때?"}
                 ],
-                "stream": False
+                "stream": False,
+                "context": ""
             }
         }
     )

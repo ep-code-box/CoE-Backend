@@ -1146,6 +1146,8 @@ async def chat_completions(
     """
     기본적으로 LangGraph Agent로 처리
     (원하면 조건부로 RAG/LLM 프록시 분기 추가 가능)
+
+    주의사항: request body에서"context"필드는 필수이다.
     """
     agent = agent_info["agent"]
     return await handle_agent_request(req, agent, req.model, request, db)
