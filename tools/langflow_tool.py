@@ -70,10 +70,13 @@ async def execute_langflow_run(tool_input: Optional[Dict[str, Any]], state: Agen
         if tool_input:
             flow_name = tool_input.get('flow_name')
             flow_id = tool_input.get('flow_id')
-        
+        last_message = ""
         if not flow_name and not flow_id:
             # 사용자 메시지에서 플로우 이름 추출
-            last_message = state["history"][-1]["content"] if state["history"] else ""
+            try:
+                last_message = state["history"][-1]["content"]
+            except:
+                pass
             # 간단한 파싱으로 플로우 이름 추출
             if "실행" in last_message or "execute" in last_message.lower():
                 words = last_message.split()
