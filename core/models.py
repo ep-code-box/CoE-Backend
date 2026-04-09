@@ -11,6 +11,7 @@ class ModelInfo(BaseModel):
     description: str
     provider: str
     is_default: bool = False
+    disabled: bool = False  # True이면 레지스트리에서 제외
     api_base: Optional[str] = None
     model_type: Optional[str] = "chat"
     provider_model_id: Optional[str] = None
@@ -40,7 +41,10 @@ class ModelRegistry:
             with open(models_file_path, 'r', encoding='utf-8') as f:
                 models_data = json.load(f)
             
-            self._models = [ModelInfo(**data) for data in models_data]
+            self._models = [
+                ModelInfo(**data) for data in models_data
+                if not data.get("disabled", False)
+            ]
             
             # 기본 모델을 찾습니다.
             default_models = [model for model in self._models if model.is_default]

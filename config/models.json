@@ -29,9 +29,10 @@
   {
     "model_id": "ax4",
     "name": "AX4 Model",
-    "description": "Default model provided by the API.",
+    "description": "Default model provided by the API. (Guest API 종료됨)",
     "provider": "sktax",
     "provider_model_id": "ax4",
+    "disabled": true,
     "is_default": false,
     "model_type": "chat",
     "api_base": "https://guest-api.sktax.chat/v1"
