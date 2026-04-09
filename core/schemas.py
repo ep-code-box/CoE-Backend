@@ -182,6 +182,9 @@ class PolarisOriginalChatRequest(BaseModel):
     usecase_mode: Optional[str] = "GENERAL"
     stream: bool = False
     target_rag: Optional[str] = None
+    context: Optional[str] = None
+    group_name: Optional[str] = None
+    app_env: Optional[str] = None
 
     model_config = ConfigDict(
         json_schema_extra = {

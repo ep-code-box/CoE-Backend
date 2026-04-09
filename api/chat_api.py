@@ -1132,7 +1132,12 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         raise HTTPException(status_code=500, detail=f"RAG LLM 호출 오류: {error_message}")
 
 
-async def handle_polaris_agent_request(req: OpenAIChatRequest, request: Request, db: Session):
+async def handle_polaris_agent_request(
+    req: OpenAIChatRequest, 
+    request: Request, 
+    db: Session, 
+    api_key: Optional[str] = None
+):
     """
     Quality Agent (Polaris) 전용 API 호출
     세션 관리 및 PII 검열을 거친 후 core.llm_client.PolarisAgentClient로 위임
@@ -1191,8 +1196,13 @@ async def handle_polaris_agent_request(req: OpenAIChatRequest, request: Request,
             "session_id": current_session_id,
         }
 
-    # context나 group_name를 통해 시스템을 판별하도록 클라이언트 생성 (요청 파라미터의 환경변수 지원 포함)
-    client = PolarisAgentClient(context=req.context, group_name=req.group_name, app_env=req.app_env)
+    # context나 group_name를 통해 시스템을 판별하도록 클라이언트 생성 (요청 파라미터의 환경변수 및 명시적 api_key 지원 포함)
+    client = PolarisAgentClient(
+        context=req.context, 
+        group_name=req.group_name, 
+        app_env=req.app_env,
+        api_key=api_key
+    )
     
     try:
         response = await client.create_chat_completion(
@@ -1290,15 +1300,21 @@ async def proxy_polaris_original_chat(
     Polaris 대상 원본 스펙 형식({"user_id"..., "model_cd"..., "message"...})을
     수신하여 OpenAPI 스펙으로 내부 변환 후 기존 handle_polaris_agent_request 로직 수행
     """
+    # 헤더에서 X-AGENT-API-KEY 추출 시도하여 프록시 전달 지원
+    api_key = request.headers.get("X-AGENT-API-KEY")
+    
     # OpenAIChatRequest 형태로 변환
     # model_cd(예: GPT5_2 등)를 그대로 model 필드에 넣습니다. (또는 매핑 로직 추가 가능)
     # messages 배열에 사용자의 "hello" 등을 담습니다.
     converted_req = OpenAIChatRequest(
         model=req_original.model_cd,
         messages=[{"role": "user", "content": req_original.message}],
-        stream=req_original.stream
+        stream=req_original.stream,
+        context=req_original.context,
+        group_name=req_original.group_name,
+        app_env=req_original.app_env,
+        user_id=req_original.user_id
     )
     
-    # context나 group_name은 필요시 매핑, 여기서는 일단 None
-    # 바로 Polaris 에이전트 핸들러를 호출합니다.
-    return await handle_polaris_agent_request(converted_req, request, db)
+    # 바로 Polaris 에이전트 핸들러를 호출합니다. (추출한 api_key 포함)
+    return await handle_polaris_agent_request(converted_req, request, db, api_key=api_key)

@@ -140,7 +140,7 @@ print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.
 # --- SK AX Quality Agent (Polaris) 전용 클라이언트 모듈화 ---
 class PolarisAgentClient:
     """SK AX Quality Agent (Polaris) 통신용 래퍼 클라이언트"""
-    def __init__(self, context: str = "", group_name: str = "", app_env: Optional[str] = None):
+    def __init__(self, context: str = "", group_name: str = "", app_env: Optional[str] = None, api_key: Optional[str] = None):
         self.context = (context or "").lower()
         self.group_name = (group_name or "").lower()
         # 환경(APP_ENV)에 따른 URL 기본값 분기 (요청 파라미터가 환경 변수보다 우선)
@@ -154,9 +154,11 @@ class PolarisAgentClient:
 
         self.api_url = os.getenv("AGENT_API_URL", default_url)
         
+        # 명시적으로 전달받은 API KEY가 있으면 최우선 사용
+        if api_key:
+            self.api_key = api_key
         # 시스템 식별자 기반 API KEY 분기
-        # MIDER 시스템일 경우
-        if self.context == "mider" or self.group_name == "mider":
+        elif self.context == "mider" or self.group_name == "mider":
             self.api_key = os.getenv("MIDER_API_KEY", os.getenv("MIDER_AGENT_API_KEY", ""))
         # AX CODE 시스템일 경우
         elif self.context == "ax_code" or self.group_name == "ax_code":
