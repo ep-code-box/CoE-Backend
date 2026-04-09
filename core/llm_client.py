@@ -14,9 +14,75 @@ default_model = model_registry.get_default_model()
 if not default_model:
     raise ValueError("기본 모델을 찾을 수 없습니다. models.json 파일을 확인하세요.")
 
-# --- 프로바이더별 클라이언트 인스턴스 ---
-# 각 프로바이더별로 별도의 클라이언트를 생성하여 올바른 API 키와 엔드포인트를 사용합니다.
+# --- 모델별 클라이언트 인스턴스 ---
+# 각 model_id별로 별도의 클라이언트를 생성하여 올바른 API 키와 엔드포인트를 사용합니다.
 _clients: Dict[str, AsyncOpenAI] = {}
+
+# --- Provider별 기본 설정 ---
+_PROVIDER_DEFAULTS: Dict[str, Dict[str, str]] = {
+    "openai": {
+        "api_base_env": "OPENAI_API_BASE",
+        "api_base_default": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY",
+    },
+    "anthropic": {
+        "api_base_env": "ANTHROPIC_API_BASE",
+        "api_base_default": "https://api.anthropic.com/v1",
+        "api_key_env": "ANTHROPIC_API_KEY",
+    },
+    "sktax": {
+        "api_key_env": "SKAX_API_KEY",
+    },
+    "local": {
+        "api_key_default": "dummy_key",
+    },
+    "sktchat": {
+        "api_key_env": "",
+    },
+}
+
+
+def _resolve_base_url(model_info: ModelInfo) -> Optional[str]:
+    """모델의 api_base를 우선 사용하고, 없으면 provider 기본값을 반환합니다."""
+    if model_info.api_base:
+        return model_info.api_base
+    provider = (model_info.provider or "").lower()
+    defaults = _PROVIDER_DEFAULTS.get(provider, {})
+    env_key = defaults.get("api_base_env")
+    if env_key:
+        return os.getenv(env_key, defaults.get("api_base_default"))
+    return defaults.get("api_base_default")
+
+
+def _resolve_api_key(model_info: ModelInfo) -> Optional[str]:
+    """provider에 따라 적절한 API 키를 반환합니다."""
+    provider = (model_info.provider or "").lower()
+    defaults = _PROVIDER_DEFAULTS.get(provider, {})
+    env_key = defaults.get("api_key_env")
+    if env_key:
+        return os.getenv(env_key)
+    return defaults.get("api_key_default")
+
+
+# --- OpenAI 비호환 커스텀 provider ---
+_CUSTOM_PROVIDERS = {"sktchat"}
+
+
+def is_custom_provider(model_id: str) -> Optional[str]:
+    """모델이 OpenAI 비호환 커스텀 provider를 사용하면 provider명을 반환합니다."""
+    model_info = model_registry.get_model(model_id)
+    if not model_info:
+        return None
+    provider = (model_info.provider or "").lower()
+    return provider if provider in _CUSTOM_PROVIDERS else None
+
+
+def get_api_key_for_model(model_id: str) -> Optional[str]:
+    """모델 ID에 해당하는 API 키를 반환합니다."""
+    model_info = model_registry.get_model(model_id)
+    if not model_info:
+        return None
+    return _resolve_api_key(model_info)
 
 
 def resolve_effective_model_id(model_id: Optional[str]) -> str:
@@ -39,12 +105,16 @@ def resolve_effective_model_id(model_id: Optional[str]) -> str:
     return model_id
 
 
-def _create_client_for_provider(model_info: ModelInfo) -> AsyncOpenAI:
-    """프로바이더별 OpenAI 클라이언트를 생성합니다."""
+def _create_client_for_model(model_info: ModelInfo) -> AsyncOpenAI:
+    """모델 정보를 기반으로 OpenAI 클라이언트를 생성합니다.
 
+    - api_base: 모델에 직접 정의된 값을 우선 사용, 없으면 provider 기본값
+    - api_key: provider에 따라 적절한 환경변수에서 로드
+    """
     provider_raw = model_info.provider or ""
     provider = provider_raw.lower()
 
+    # CoE 프로바이더는 다른 모델로 위임
     if provider == "coe":
         fallback_id = model_info.provider_model_id
         if not fallback_id:
@@ -61,42 +131,37 @@ def _create_client_for_provider(model_info: ModelInfo) -> AsyncOpenAI:
 
         return get_client_for_model(fallback_id)
 
-    if provider == "sktax":
-        return AsyncOpenAI(
-            base_url=model_info.api_base,
-            api_key=os.getenv("SKAX_API_KEY")
+    # 일반 프로바이더: api_base와 api_key를 모델/provider 설정에서 결정
+    base_url = _resolve_base_url(model_info)
+    api_key = _resolve_api_key(model_info)
+
+    if not base_url:
+        raise ValueError(
+            f"모델 '{model_info.model_id}'의 api_base를 결정할 수 없습니다. "
+            f"models.json에 api_base를 지정하거나 provider 기본값을 확인하세요."
         )
-    if provider == "openai":
-        return AsyncOpenAI(
-            base_url=os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1"),
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
-    if provider == "anthropic":
-        # Anthropic은 OpenAI 호환 API를 제공하지 않으므로 별도 처리가 필요할 수 있습니다.
-        # 현재는 OpenAI 클라이언트로 처리하되, 향후 확장 가능하도록 구조를 유지합니다.
-        return AsyncOpenAI(
-            base_url=os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com/v1"),
-            api_key=os.getenv("ANTHROPIC_API_KEY")
-        )
-    if provider == "local":
-        return AsyncOpenAI(
-            base_url=model_info.api_base,
-            api_key="dummy_key"  # Local models often don't need an API key
+    if not api_key:
+        raise ValueError(
+            f"모델 '{model_info.model_id}'(provider={provider_raw})의 "
+            f"API 키를 찾을 수 없습니다. 환경변수를 확인하세요."
         )
 
-    raise ValueError(f"지원하지 않는 프로바이더입니다: {provider_raw}")
+    return AsyncOpenAI(base_url=base_url, api_key=api_key)
 
 def get_client_for_model(model_id: str) -> AsyncOpenAI:
-    """모델 ID에 해당하는 프로바이더의 클라이언트를 반환합니다."""
+    """모델 ID에 해당하는 프로바이더의 클라이언트를 반환합니다.
+    
+    model_id를 캐시 키로 사용하여, 같은 provider라도
+    api_base가 다르면 별도 클라이언트를 생성합니다.
+    """
     model_info = model_registry.get_model(model_id)
     if not model_info:
         raise ValueError(f"지원하지 않는 모델입니다: {model_id}")
-    
-    provider = (model_info.provider or "").lower()
-    if provider not in _clients:
-        _clients[provider] = _create_client_for_provider(model_info)
 
-    return _clients[provider]
+    if model_id not in _clients:
+        _clients[model_id] = _create_client_for_model(model_info)
+
+    return _clients[model_id]
 
 def get_model_info(model_id: str) -> Optional[ModelInfo]:
     """모델 ID에 해당하는 모델 정보를 반환합니다."""
@@ -112,27 +177,16 @@ client = get_client_for_model(default_model.model_id)
 #    LangChain의 ChatOpenAI는 OpenAI SDK v1 리소스(client.chat.completions) 또는
 #    api_key/base_url 설정로 동작합니다. 루트 AsyncOpenAI를 넘기면 `create`가 없어 오류가 납니다.
 
-# 기본 모델 프로바이더에 맞춰 ChatOpenAI에 전달할 base_url/api_key 계산
-provider = default_model.provider
-if provider == "sktax":
-    _lc_base_url = default_model.api_base
-    _lc_api_key = os.getenv("SKAX_API_KEY")
-elif provider == "openai":
-    _lc_base_url = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    _lc_api_key = os.getenv("OPENAI_API_KEY")
-elif provider == "local":
-    _lc_base_url = default_model.api_base
-    _lc_api_key = "dummy_key"
-else:
-    # 기타 프로바이더도 OpenAI 호환 게이트웨이를 사용하는 경우에 한해 그대로 시도
-    _lc_base_url = getattr(default_model, "api_base", None) or os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-    _lc_api_key = os.getenv("OPENAI_API_KEY")
+# 기본 모델의 base_url/api_key를 공용 헬퍼로 계산
+_lc_base_url = _resolve_base_url(default_model)
+_lc_api_key = _resolve_api_key(default_model)
+_lc_effective_model = resolve_effective_model_id(default_model.model_id)
 
 langchain_client = ChatOpenAI(
-    model=default_model.model_id,  # ModelRegistry에서 가져온 기본 모델 ID 사용
+    model=_lc_effective_model,
     streaming=True,
     api_key=_lc_api_key,
     base_url=_lc_base_url,
 )
 
-print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.")
+print(f"✅ Initialized model-specific clients for {len(_clients)} models.")

@@ -184,6 +184,20 @@ async def tool_dispatcher_node(state: AgentState) -> Dict[str, Any]:
         llm_kwargs["tool_choice"] = forced_tool_choice
 
     response = await llm_client.chat.completions.create(**llm_kwargs)
+
+    if not response.choices:
+        logger.error(
+            "LLM returned empty choices | model=%s response=%s",
+            resolved_model_id,
+            response.model_dump() if hasattr(response, "model_dump") else str(response),
+        )
+        error_msg = {
+            "role": "assistant",
+            "content": f"모델 '{resolved_model_id}'로부터 유효한 응답을 받지 못했습니다. 모델이 tool calling을 지원하는지 확인하세요.",
+        }
+        history.append(error_msg)
+        return {"history": history}
+
     response_message = response.choices[0].message
     history.append(response_message.model_dump())
 

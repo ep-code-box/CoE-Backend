@@ -153,6 +153,8 @@ class OpenAIChatRequest(BaseModel):
     # Front-end에서 전달된 도구 이름과 입력
     tool_input: Optional[Dict[str, Any]] = None
     context: Optional[str] = None # 도구 컨텍스트 (e.g., 'aider', 'continue.dev')
+    user_id: Optional[str] = None # 외부 provider 사용자 식별용 (e.g., sktchat)
+    api_key: Optional[str] = None # 외부 provider API 키 (없으면 .env 기본값 사용)
 
     model_config = ConfigDict(
         json_schema_extra = {

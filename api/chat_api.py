@@ -23,7 +23,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from core.schemas import OpenAIChatRequest, AgentState
-from core.llm_client import get_client_for_model, get_model_info
+from core.llm_client import (
+    get_client_for_model,
+    get_model_info,
+    resolve_effective_model_id,
+    is_custom_provider,
+    get_api_key_for_model,
+)
 from core.database import get_db
 from services.chat_service import get_chat_service, ChatService
 from services.pii_service import scrub_text
@@ -887,8 +893,6 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
                 detail=f"지원하지 않는 모델입니다: {req.model}. 지원 모델 목록은 /v1/models 엔드포인트에서 확인하세요.",
             )
 
-        model_client = get_client_for_model(req.model)
-
         last_user_message = ""
         for msg in reversed(req.messages or []):
             if msg.role == "user":
@@ -900,8 +904,47 @@ async def handle_llm_proxy_request(req: OpenAIChatRequest):
             _shorten_for_log(last_user_message),
         )
 
+        effective_model = resolve_effective_model_id(req.model)
+
+        # --- sktchat 등 커스텀 provider 분기 ---
+        custom_provider = is_custom_provider(req.model)
+        if custom_provider == "sktchat":
+            from core.sktchat_client import call_sktchat_api, stream_sktchat_api, SktchatApiError
+
+            api_key = req.api_key or get_api_key_for_model(req.model) or ""
+            messages = [msg.model_dump(exclude_none=True) for msg in req.messages]
+
+            try:
+                if req.stream:
+                    return StreamingResponse(
+                        stream_sktchat_api(
+                            base_url=model_info.api_base,
+                            api_key=api_key,
+                            model_cd=effective_model,
+                            messages=messages,
+                            user_id=req.user_id,
+                        ),
+                        media_type="text/event-stream",
+                    )
+                else:
+                    result = await call_sktchat_api(
+                        base_url=model_info.api_base,
+                        api_key=api_key,
+                        model_cd=effective_model,
+                        messages=messages,
+                        stream=False,
+                        user_id=req.user_id,
+                    )
+                    return result
+            except SktchatApiError as e:
+                logger.error("[SKTCHAT] API error: %s", e)
+                raise HTTPException(status_code=500, detail=f"sktchat API 오류: {e.reason}")
+
+        # --- 기존 OpenAI 호환 provider 처리 ---
+        model_client = get_client_for_model(req.model)
+
         params: Dict[str, Any] = {
-            "model": req.model,
+            "model": effective_model,
             "messages": [msg.model_dump(exclude_none=True) for msg in req.messages],
             "stream": req.stream,
             "temperature": req.temperature,
@@ -1081,8 +1124,9 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
 
     try:
         model_client = get_client_for_model(req.model)
+        effective_model = resolve_effective_model_id(req.model)
         llm_params: Dict[str, Any] = {
-            "model": req.model,
+            "model": effective_model,
             "messages": messages_for_llm,
             "stream": req.stream,
             "temperature": req.temperature,
