@@ -56,7 +56,26 @@
     "description": "Updated next-gen model",
     "provider": "openai",
     "is_default": false,
-    "model_type": "chat"},
+    "model_type": "chat"
+  },
+  {
+    "model_id": "gpt-5.2-polaris",
+    "name": "GPT-5.2 Polaris",
+    "description": "Polaris Agent Model",
+    "provider": "polaris",
+    "provider_model_id": "GPT5_2",
+    "is_default": false,
+    "model_type": "chat"
+  },
+  {
+    "model_id": "gpt-5.2-codex-polaris",
+    "name": "GPT-5.2 Codex Polaris",
+    "description": "Polaris Agent Codex Model",
+    "provider": "polaris",
+    "provider_model_id": "GPT5_2_CODEX",
+    "is_default": false,
+    "model_type": "chat"
+  },
   {
     "model_id": "gpt-5.1",
     "name": "GPT-5.1",

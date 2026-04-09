@@ -136,3 +136,122 @@ langchain_client = ChatOpenAI(
 )
 
 print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.")
+
+# --- SK AX Quality Agent (Polaris) 전용 클라이언트 모듈화 ---
+class PolarisAgentClient:
+    """SK AX Quality Agent (Polaris) 통신용 래퍼 클라이언트"""
+    def __init__(self, context: str = "", group_name: str = ""):
+        self.context = (context or "").lower()
+        self.group_name = (group_name or "").lower()
+        # 환경(APP_ENV)에 따른 URL 기본값 분기
+        app_env = os.getenv("APP_ENV", "dev").lower()
+        is_prd = app_env == "prd"
+        
+        if is_prd:
+            default_url = "http://172.31.166.70:8000/api/agent/v1/chats"
+        else:
+            default_url = "http://172.31.228.183:8000/api/agent/v1/chats"
+
+        self.api_url = os.getenv("AGENT_API_URL", default_url)
+        
+        # 시스템 식별자 기반 API KEY 분기
+        # MIDER 시스템일 경우
+        if self.context == "mider" or self.group_name == "mider":
+            self.api_key = os.getenv("MIDER_API_KEY", os.getenv("MIDER_AGENT_API_KEY", ""))
+        # AX CODE 시스템일 경우
+        elif self.context == "ax_code" or self.group_name == "ax_code":
+            self.api_key = os.getenv("AX_CODE_API_KEY", os.getenv("AX_CODE_AGENT_API_KEY", ""))
+        else:
+            # 설정이 없으면 기본 에이전트 키
+            self.api_key = os.getenv("AGENT_API_KEY", "")
+
+    async def create_chat_completion(self, req_model: str, user_query: str, req_stream: bool):
+        import httpx
+        import json
+        import uuid
+        import time
+        from fastapi import HTTPException
+        from fastapi.responses import StreamingResponse
+            
+        user_id = "agent_developer"
+        
+        # models.json 설정(ModelRegistry)을 통해 동적으로 model_cd 바인딩
+        from core.llm_client import get_model_info
+        model_info = get_model_info(req_model)
+        
+        target_model_cd = "GPT5_2" # 기본값
+        if model_info and model_info.provider_model_id:
+            target_model_cd = model_info.provider_model_id
+        elif req_model and "codex" in req_model.lower():
+            target_model_cd = "GPT5_2_CODEX"
+            
+        payload = {
+            "user_id": user_id,
+            "message": user_query,
+            "model_cd": target_model_cd,
+            "usecase_mode": "GENERAL",
+            "stream": req_stream
+        }
+        
+        headers = {
+            "X-AGENT-API-KEY": self.api_key,
+            "Content-Type": "application/json"
+        }
+
+        client = httpx.AsyncClient(timeout=30.0)
+        
+        if req_stream:
+            async def _stream_generator():
+                async with client.stream("POST", self.api_url, headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_data = await resp.aread()
+                        raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {error_data.decode('utf-8')}")
+                    
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            if data.get("type") == "token":
+                                chunk_id = f"chatcmpl-{uuid.uuid4()}"
+                                delta_content = data.get('data', '')
+                                chunk_data = {'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req_model, 'choices': [{'index': 0, 'delta': {'content': delta_content}, 'finish_reason': None}]}
+                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                            elif data.get("type") == "error":
+                                chunk_id = f"chatcmpl-{uuid.uuid4()}"
+                                error_reason = data.get('reason')
+                                delta_content = f"\n[Error: {error_reason}]"
+                                chunk_data = {'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req_model, 'choices': [{'index': 0, 'delta': {'content': delta_content}, 'finish_reason': 'stop'}]}
+                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                        except json.JSONDecodeError:
+                            pass
+                    yield "data: [DONE]\n\n"
+            return StreamingResponse(_stream_generator(), media_type="text/event-stream")
+        else:
+            resp = await client.post(self.api_url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {resp.text}")
+            
+            lines = resp.text.split("\n")
+            full_content = ""
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("type") == "token":
+                        full_content += data.get("data", "")
+                    elif data.get("type") == "error":
+                        full_content += f"\n[Error: {data.get('reason')}]"
+                except:
+                    pass
+                    
+            await client.aclose()
+            
+            return {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req_model or "quality-agent",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": full_content}, "finish_reason": "stop"}]
+            }

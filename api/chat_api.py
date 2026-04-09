@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from core.schemas import OpenAIChatRequest, AgentState
+from core.schemas import OpenAIChatRequest, AgentState, PolarisOriginalChatRequest
 from core.llm_client import get_client_for_model, get_model_info
 from core.database import get_db
 from services.chat_service import get_chat_service, ChatService
@@ -1090,7 +1090,7 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         }
         llm_params = _drop_none_fields(llm_params)
 
-        llm_response = model_client.chat.completions.create(**llm_params)
+        llm_response = await model_client.chat.completions.create(**llm_params)
 
         if req.stream:
             return StreamingResponse(proxy_stream_generator(llm_response), media_type="text/event-stream")
@@ -1132,6 +1132,105 @@ async def handle_rag_request(req: OpenAIChatRequest, request: Request, db: Sessi
         raise HTTPException(status_code=500, detail=f"RAG LLM 호출 오류: {error_message}")
 
 
+async def handle_polaris_agent_request(req: OpenAIChatRequest, request: Request, db: Session):
+    """
+    Quality Agent (Polaris) 전용 API 호출
+    세션 관리 및 PII 검열을 거친 후 core.llm_client.PolarisAgentClient로 위임
+    """
+    from core.llm_client import PolarisAgentClient
+    
+    start_time = time.time()
+    chat_service = get_chat_service(db)
+
+    session, current_session_id, history_dicts, current_user_content = await _get_or_create_session_and_history(
+        req, chat_service, request
+    )
+
+    masked_user_content, pii_hits = scrub_text(current_user_content)
+    if pii_hits:
+        logger.info(
+            "[PII] session=%s masked_types=%s",
+            current_session_id,
+            ",".join(sorted({hit["type"] for hit in pii_hits})),
+        )
+
+    logger.info(
+        "[CHAT][POLARIS REQUEST] session=%s context=%s group=%s model=%s user=%s",
+        current_session_id,
+        req.context or "",
+        req.group_name or "",
+        req.model,
+        _shorten_for_log(masked_user_content),
+    )
+
+    if pii_hits:
+        final_message_content = PII_BLOCK_MESSAGE
+        final_message_dict = {"role": "assistant", "content": final_message_content}
+        await _log_and_save_messages(
+            chat_service,
+            current_session_id,
+            masked_user_content,
+            final_message_content,
+            session,
+            start_time,
+            req,
+            200,
+        )
+        if req.stream:
+            return StreamingResponse(
+                agent_stream_generator(req.model, final_message_dict, current_session_id),
+                media_type="text/event-stream",
+            )
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "session_id": current_session_id,
+        }
+
+    # context나 group_name를 통해 시스템을 판별하도록 클라이언트 생성 (기본값 지원)
+    client = PolarisAgentClient(context=req.context, group_name=req.group_name)
+    
+    try:
+        response = await client.create_chat_completion(
+            req_model=req.model,
+            user_query=current_user_content,
+            req_stream=req.stream
+        )
+        
+        if req.stream:
+            # PolarisAgentClient returns StreamingResponse directly if stream=True
+            return response
+        else:
+            final_message_dict = response["choices"][0]["message"]
+            final_message_content = final_message_dict.get("content", "")
+
+            await _log_and_save_messages(
+                chat_service,
+                current_session_id,
+                masked_user_content,
+                final_message_content,
+                session,
+                start_time,
+                req,
+                200,
+            )
+
+            # 세션 ID를 응답에 포함
+            response["session_id"] = current_session_id
+            return response
+            
+    except Exception as e:
+        error_message = str(e)
+        logger.error("Polaris API 호출 오류: %s: %s", type(e).__name__, error_message, exc_info=True)
+        await _log_and_save_messages(
+            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
+        )
+        raise HTTPException(status_code=500, detail=f"Polaris API 호출 오류: {error_message}")
+
 # -----------------------------
 # 엔드포인트
 # -----------------------------
@@ -1150,6 +1249,12 @@ async def chat_completions(
     주의사항: request body에서"context"필드는 필수이다.
     """
     agent = agent_info["agent"]
+    
+    # ModelRegistry에서 제공자를 확인하여 Polaris API 연동 지원
+    model_info = get_model_info(req.model)
+    if model_info and (model_info.provider or "").lower() == "polaris":
+        return await handle_polaris_agent_request(req, request, db)
+        
     return await handle_agent_request(req, agent, req.model, request, db)
 
 
@@ -1173,3 +1278,26 @@ async def internal_completions(req: OpenAIChatRequest):
         len(req.messages) if req.messages else 0,
     )
     return await handle_llm_proxy_request(req)
+
+@router.post("/api/agent/v1/chats")
+async def proxy_polaris_original_chat(
+    req_original: PolarisOriginalChatRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Polaris 대상 원본 스펙 형식({"user_id"..., "model_cd"..., "message"...})을
+    수신하여 OpenAPI 스펙으로 내부 변환 후 기존 handle_polaris_agent_request 로직 수행
+    """
+    # OpenAIChatRequest 형태로 변환
+    # model_cd(예: GPT5_2 등)를 그대로 model 필드에 넣습니다. (또는 매핑 로직 추가 가능)
+    # messages 배열에 사용자의 "hello" 등을 담습니다.
+    converted_req = OpenAIChatRequest(
+        model=req_original.model_cd,
+        messages=[{"role": "user", "content": req_original.message}],
+        stream=req_original.stream
+    )
+    
+    # context나 group_name은 필요시 매핑, 여기서는 일단 None
+    # 바로 Polaris 에이전트 핸들러를 호출합니다.
+    return await handle_polaris_agent_request(converted_req, request, db)

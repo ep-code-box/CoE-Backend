@@ -172,6 +172,27 @@ class AiderChatRequest(OpenAIChatRequest):
     group_name: Optional[str] = None # aider 전용 group_name 필드 추가
 
 
+class PolarisOriginalChatRequest(BaseModel):
+    """Polaris Web 서버가 원본 스펙으로 패스스루할 때 사용할 스키마"""
+    user_id: str
+    message: str
+    model_cd: str
+    usecase_mode: Optional[str] = "GENERAL"
+    stream: bool = False
+    target_rag: Optional[str] = None
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "user_id": "agent_developer",
+                "model_cd": "GPT5_2",
+                "message": "hello",
+                "stream": False
+            }
+        }
+    )
+
+
 class ChatResponse(BaseModel):
     messages: List[dict]
     session_id: str
