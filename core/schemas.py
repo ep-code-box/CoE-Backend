@@ -153,6 +153,8 @@ class OpenAIChatRequest(BaseModel):
     # Front-end에서 전달된 도구 이름과 입력
     tool_input: Optional[Dict[str, Any]] = None
     context: Optional[str] = None # 도구 컨텍스트 (e.g., 'aider', 'continue.dev')
+    app_env: Optional[str] = None # Polaris 요청용 환경 변수 (dev, prd 등)
+    user_id: Optional[str] = None # Polaris 요청용 사용자 ID (사번 등)
 
     model_config = ConfigDict(
         json_schema_extra = {

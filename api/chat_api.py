@@ -1191,14 +1191,15 @@ async def handle_polaris_agent_request(req: OpenAIChatRequest, request: Request,
             "session_id": current_session_id,
         }
 
-    # context나 group_name를 통해 시스템을 판별하도록 클라이언트 생성 (기본값 지원)
-    client = PolarisAgentClient(context=req.context, group_name=req.group_name)
+    # context나 group_name를 통해 시스템을 판별하도록 클라이언트 생성 (요청 파라미터의 환경변수 지원 포함)
+    client = PolarisAgentClient(context=req.context, group_name=req.group_name, app_env=req.app_env)
     
     try:
         response = await client.create_chat_completion(
             req_model=req.model,
             user_query=current_user_content,
-            req_stream=req.stream
+            req_stream=req.stream,
+            user_id=req.user_id
         )
         
         if req.stream:

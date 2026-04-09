@@ -140,12 +140,12 @@ print(f"✅ Initialized provider-specific clients for {len(_clients)} providers.
 # --- SK AX Quality Agent (Polaris) 전용 클라이언트 모듈화 ---
 class PolarisAgentClient:
     """SK AX Quality Agent (Polaris) 통신용 래퍼 클라이언트"""
-    def __init__(self, context: str = "", group_name: str = ""):
+    def __init__(self, context: str = "", group_name: str = "", app_env: Optional[str] = None):
         self.context = (context or "").lower()
         self.group_name = (group_name or "").lower()
-        # 환경(APP_ENV)에 따른 URL 기본값 분기
-        app_env = os.getenv("APP_ENV", "dev").lower()
-        is_prd = app_env == "prd"
+        # 환경(APP_ENV)에 따른 URL 기본값 분기 (요청 파라미터가 환경 변수보다 우선)
+        derived_app_env = (app_env or os.getenv("APP_ENV", "dev")).lower()
+        is_prd = derived_app_env == "prd"
         
         if is_prd:
             default_url = "http://172.31.166.70:8000/api/agent/v1/chats"
@@ -165,7 +165,7 @@ class PolarisAgentClient:
             # 설정이 없으면 기본 에이전트 키
             self.api_key = os.getenv("AGENT_API_KEY", "")
 
-    async def create_chat_completion(self, req_model: str, user_query: str, req_stream: bool):
+    async def create_chat_completion(self, req_model: str, user_query: str, req_stream: bool, user_id: Optional[str] = None):
         import httpx
         import json
         import uuid
@@ -173,7 +173,7 @@ class PolarisAgentClient:
         from fastapi import HTTPException
         from fastapi.responses import StreamingResponse
             
-        user_id = "agent_developer"
+        resolved_user_id = user_id if user_id else "agent_developer"
         
         # models.json 설정(ModelRegistry)을 통해 동적으로 model_cd 바인딩
         from core.llm_client import get_model_info
@@ -186,7 +186,7 @@ class PolarisAgentClient:
             target_model_cd = "GPT5_2_CODEX"
             
         payload = {
-            "user_id": user_id,
+            "user_id": resolved_user_id,
             "message": user_query,
             "model_cd": target_model_cd,
             "usecase_mode": "GENERAL",
