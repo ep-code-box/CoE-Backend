@@ -157,18 +157,23 @@ class PolarisAgentClient:
         # 환경에 따른 접미사(Suffix) 결정
         suffix = "_PRD" if is_prd else "_DEV"
         
-        # 명시적으로 전달받은 API KEY가 있으면 최우선 사용
+        # 시스템 식별자 기반 API KEY 분기
         if api_key:
             self.api_key = api_key
-        # 시스템 식별자 기반 API KEY 분기
         elif self.context == "mider" or self.group_name == "mider":
-            self.api_key = os.getenv(f"MIDER_API_KEY{suffix}", "")
-        # AX CODE 시스템일 경우
+            self.api_key = (os.getenv(f"MIDER_API_KEY{suffix}") or "").strip()
         elif self.context == "ax_code" or self.group_name == "ax_code":
-            self.api_key = os.getenv(f"AX_CODE_API_KEY{suffix}", "")
+            self.api_key = (os.getenv(f"AX_CODE_API_KEY{suffix}") or "").strip()
         else:
-            # 설정이 없으면 기본 에이전트 키
-            self.api_key = os.getenv(f"AGENT_API_KEY{suffix}", "")
+            self.api_key = (os.getenv(f"AGENT_API_KEY{suffix}") or "").strip()
+
+        # 디버깅용 로그 (앞 5자리만 출력)
+        import logging
+        logger = logging.getLogger(__name__)
+        if not self.api_key:
+            logger.warning(f"[POLARIS] API Key is empty! context='{self.context}', app_env='{derived_app_env}'")
+        else:
+            logger.info(f"[POLARIS] API Key loaded ({self.api_key[:5]}...) for context='{self.context}'")
 
     async def create_chat_completion(self, req_model: str, user_query: str, req_stream: bool, user_id: Optional[str] = None):
         import httpx
