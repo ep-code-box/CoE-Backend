@@ -208,13 +208,21 @@ class PolarisAgentClient:
             "Content-Type": "application/json"
         }
 
-        client = httpx.AsyncClient(timeout=30.0)
+        # [DEBUG] 전송 Payload 로그
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"[POLARIS][OUTGOING] Request to {self.api_url}")
+        logger.debug(f"[POLARIS][OUTGOING] Payload: {json.dumps(payload, ensure_ascii=False)}")
+
+        client = httpx.AsyncClient(timeout=300.0)
         
         if req_stream:
             async def _stream_generator():
                 async with client.stream("POST", self.api_url, headers=headers, json=payload) as resp:
+                    logger.debug(f"[POLARIS][RESPONSE] Status: {resp.status_code}")
                     if resp.status_code != 200:
                         error_data = await resp.aread()
+                        logger.error(f"[POLARIS][ERROR] Stream failed: {error_data.decode('utf-8')}")
                         raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {error_data.decode('utf-8')}")
                     
                     async for line in resp.aiter_lines():
@@ -231,6 +239,7 @@ class PolarisAgentClient:
                                 chunk_id = f"chatcmpl-{uuid.uuid4()}"
                                 error_reason = data.get('reason')
                                 delta_content = f"\n[Error: {error_reason}]"
+                                logger.warning(f"[POLARIS][STREAM] Error in data: {error_reason}")
                                 chunk_data = {'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req_model, 'choices': [{'index': 0, 'delta': {'content': delta_content}, 'finish_reason': 'stop'}]}
                                 yield f"data: {json.dumps(chunk_data)}\n\n"
                         except json.JSONDecodeError:
@@ -239,9 +248,14 @@ class PolarisAgentClient:
             return StreamingResponse(_stream_generator(), media_type="text/event-stream")
         else:
             resp = await client.post(self.api_url, headers=headers, json=payload)
+            logger.debug(f"[POLARIS][RESPONSE] Status: {resp.status_code}")
             if resp.status_code != 200:
+                logger.error(f"[POLARIS][ERROR] Request failed: {resp.text}")
                 raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {resp.text}")
             
+            # [DEBUG] 응답 바디 로그
+            logger.debug(f"[POLARIS][RESPONSE] Body: {resp.text}")
+
             lines = resp.text.split("\n")
             full_content = ""
             for line in lines:
@@ -265,3 +279,4 @@ class PolarisAgentClient:
                 "model": req_model or "quality-agent",
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": full_content}, "finish_reason": "stop"}]
             }
+

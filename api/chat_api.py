@@ -1151,50 +1151,14 @@ async def handle_polaris_agent_request(
         req, chat_service, request
     )
 
-    masked_user_content, pii_hits = scrub_text(current_user_content)
-    if pii_hits:
-        logger.info(
-            "[PII] session=%s masked_types=%s",
-            current_session_id,
-            ",".join(sorted({hit["type"] for hit in pii_hits})),
-        )
-
     logger.info(
         "[CHAT][POLARIS REQUEST] session=%s context=%s group=%s model=%s user=%s",
         current_session_id,
         req.context or "",
         req.group_name or "",
         req.model,
-        _shorten_for_log(masked_user_content),
+        _shorten_for_log(current_user_content),
     )
-
-    if pii_hits:
-        final_message_content = PII_BLOCK_MESSAGE
-        final_message_dict = {"role": "assistant", "content": final_message_content}
-        await _log_and_save_messages(
-            chat_service,
-            current_session_id,
-            masked_user_content,
-            final_message_content,
-            session,
-            start_time,
-            req,
-            200,
-        )
-        if req.stream:
-            return StreamingResponse(
-                agent_stream_generator(req.model, final_message_dict, current_session_id),
-                media_type="text/event-stream",
-            )
-        return {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": req.model,
-            "choices": [{"index": 0, "message": final_message_dict, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "session_id": current_session_id,
-        }
 
     # context나 group_name를 통해 시스템을 판별하도록 클라이언트 생성 (요청 파라미터의 환경변수 및 명시적 api_key 지원 포함)
     client = PolarisAgentClient(
@@ -1222,7 +1186,7 @@ async def handle_polaris_agent_request(
             await _log_and_save_messages(
                 chat_service,
                 current_session_id,
-                masked_user_content,
+                current_user_content,
                 final_message_content,
                 session,
                 start_time,
@@ -1238,7 +1202,7 @@ async def handle_polaris_agent_request(
         error_message = str(e)
         logger.error("Polaris API 호출 오류: %s: %s", type(e).__name__, error_message, exc_info=True)
         await _log_and_save_messages(
-            chat_service, current_session_id, masked_user_content, "", session, start_time, req, 500, error_message
+            chat_service, current_session_id, current_user_content, "", session, start_time, req, 500, error_message
         )
         raise HTTPException(status_code=500, detail=f"Polaris API 호출 오류: {error_message}")
 
@@ -1300,6 +1264,12 @@ async def proxy_polaris_original_chat(
     Polaris 대상 원본 스펙 형식({"user_id"..., "model_cd"..., "message"...})을
     수신하여 OpenAPI 스펙으로 내부 변환 후 기존 handle_polaris_agent_request 로직 수행
     """
+    # [DEBUG] 원본 요청 전체 로그 기록
+    logger.debug(
+        "[POLARIS][INCOMING] Original request payload: %s", 
+        req_original.model_dump_json(exclude_none=True)
+    )
+
     # 헤더에서 X-AGENT-API-KEY 추출 시도하여 프록시 전달 지원
     api_key = request.headers.get("X-AGENT-API-KEY")
     
@@ -1318,3 +1288,4 @@ async def proxy_polaris_original_chat(
     
     # 바로 Polaris 에이전트 핸들러를 호출합니다. (추출한 api_key 포함)
     return await handle_polaris_agent_request(converted_req, request, db, api_key=api_key)
+
