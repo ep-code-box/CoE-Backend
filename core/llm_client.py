@@ -149,10 +149,10 @@ class PolarisAgentClient:
         
         if is_prd:
             default_url = "http://172.31.166.70:8000/api/agent/v1/chats"
-            default_tool_url = "http://172.31.166.70:8000/v1/chat/completions"
+            default_tool_url = default_url
         else:
             default_url = "http://172.31.228.183:8000/api/agent/v1/chats"
-            default_tool_url = "http://172.31.228.183:8000/v1/chat/completions"
+            default_tool_url = default_url
 
         self.api_url = os.getenv("AGENT_API_URL", default_url)
         self.tool_api_url = os.getenv("AGENT_TOOL_API_URL", default_tool_url)
