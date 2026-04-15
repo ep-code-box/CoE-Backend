@@ -412,4 +412,54 @@ class PolarisAgentClient:
                 logger.error(f"[POLARIS-TOOL][ERROR] Request failed: {resp.text}")
                 raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {resp.text}")
             
-            return resp.json()
+            # Polaris 기존 엔드포인트의 멀티라인 JSON 응답 처리
+            lines = resp.text.split("\n")
+            full_content = ""
+            tool_calls = []
+            
+            import uuid
+            import time
+
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    # 1. 표준 OpenAI 응답 조각인 경우
+                    if "choices" in data:
+                        choice = data["choices"][0]
+                        msg = choice.get("message", {})
+                        if msg.get("content"):
+                            full_content += msg["content"]
+                        if msg.get("tool_calls"):
+                            tool_calls.extend(msg["tool_calls"])
+                            
+                    # 2. Polaris 전용 응답 조각인 경우
+                    elif data.get("type") == "token":
+                        full_content += data.get("data", "")
+                    elif data.get("type") == "error":
+                        full_content += f"\n[Error: {data.get('reason')}]"
+                except:
+                    continue
+                    
+            await client.aclose()
+            
+            # 최종 OpenAI 규격으로 조립
+            result = {
+                "id": f"chatcmpl-{uuid.uuid4()}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": req_model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": full_content if full_content else None
+                    },
+                    "finish_reason": "stop"
+                }]
+            }
+            if tool_calls:
+                result["choices"][0]["message"]["tool_calls"] = tool_calls
+                
+            return result
