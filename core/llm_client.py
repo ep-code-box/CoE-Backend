@@ -149,10 +149,13 @@ class PolarisAgentClient:
         
         if is_prd:
             default_url = "http://172.31.166.70:8000/api/agent/v1/chats"
+            default_tool_url = "http://172.31.166.70:8000/v1/chat/completions"
         else:
             default_url = "http://172.31.228.183:8000/api/agent/v1/chats"
+            default_tool_url = "http://172.31.228.183:8000/v1/chat/completions"
 
         self.api_url = os.getenv("AGENT_API_URL", default_url)
+        self.tool_api_url = os.getenv("AGENT_TOOL_API_URL", default_tool_url)
         
         # 환경에 따른 접미사(Suffix) 결정
         suffix = "_PRD" if is_prd else "_DEV"
@@ -313,3 +316,90 @@ class PolarisAgentClient:
                 result["error_code"] = error_code
                 
             return result
+
+    async def create_chat_completion_with_tools(
+        self, 
+        req_model: str, 
+        messages: list, 
+        tools: list, 
+        req_stream: bool, 
+        user_id: Optional[str] = None
+    ):
+        """새로운 /v1/chat/completions 엔드포인트를 호출하여 Tool Calling을 지원합니다."""
+        import httpx
+        import json
+        import logging
+        from fastapi import HTTPException
+        from fastapi.responses import StreamingResponse
+        
+        logger = logging.getLogger(__name__)
+        resolved_user_id = user_id if user_id else "agent_developer"
+        
+        from core.llm_client import get_model_info
+        target_model_cd = "GPT5_2"
+        model_info = get_model_info(req_model)
+        if model_info and model_info.provider_model_id:
+            target_model_cd = model_info.provider_model_id
+            
+        last_user_msg = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                last_user_msg = msg.get("content", "")
+                if isinstance(last_user_msg, list): # 멀티모달 처리
+                    import core.llm_client
+                    last_user_msg = str(last_user_msg) # 간이 변환
+                break
+            
+        payload = {
+            "model": req_model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "stream": req_stream,
+            "user_id": resolved_user_id,
+            "model_cd": target_model_cd,
+            "message": last_user_msg, 
+            "usecase_mode": "GENERAL"
+        }
+        
+        headers = {
+            "X-AGENT-API-KEY": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        logger.debug(f"[POLARIS-TOOL][OUTGOING] Request to {self.tool_api_url}")
+        
+        client = httpx.AsyncClient(timeout=300.0)
+
+        if req_stream:
+            async def _stream_generator():
+                async with client.stream("POST", self.tool_api_url, headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        error_data = await resp.aread()
+                        logger.error(f"[POLARIS-TOOL][ERROR] Stream failed: {error_data.decode('utf-8')}")
+                        raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {error_data.decode('utf-8')}")
+                    
+                    async for line in resp.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        
+                        data_str = line[6:]
+                        if data_str.strip() == "[DONE]":
+                            yield "data: [DONE]\n\n"
+                            break
+                        
+                        try:
+                            # 폴라리스 커스텀 타입이 아닌 순수한 OpenAI 형식 파싱 결과를 패스스루
+                            chunk_data = json.loads(data_str)
+                            yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                        except json.JSONDecodeError:
+                            pass
+            return StreamingResponse(_stream_generator(), media_type="text/event-stream")
+
+        else:
+            resp = await client.post(self.tool_api_url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                logger.error(f"[POLARIS-TOOL][ERROR] Request failed: {resp.text}")
+                raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {resp.text}")
+            
+            return resp.json()

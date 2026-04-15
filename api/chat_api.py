@@ -1169,12 +1169,36 @@ async def handle_polaris_agent_request(
     )
     
     try:
-        response = await client.create_chat_completion(
-            req_model=req.model,
-            user_query=current_user_content,
-            req_stream=req.stream,
-            user_id=req.user_id
-        )
+        server_schemas: List[Any] = []
+        try:
+            from services import tool_dispatcher
+            if hasattr(tool_dispatcher, "get_available_tools_for_context"):
+                server_schemas, _ = tool_dispatcher.get_available_tools_for_context(
+                    req.context or "",
+                    req.group_name,
+                )
+        except Exception as e:
+            logger.warning(f"서버 도구 로딩 실패(context='{req.context}'): {e}")
+            
+        merged_tools = _merge_tool_schemas(server_schemas, req.tools)
+        
+        # 병합된 도구가 존재하면 새로운 Tool Calling 엔드포인트 메서드를 호출합니다.
+        if merged_tools:
+            response = await client.create_chat_completion_with_tools(
+                req_model=req.model,
+                messages=history_dicts,
+                tools=merged_tools,
+                req_stream=req.stream,
+                user_id=req.user_id
+            )
+        else:
+            # 도구가 없다면 기존 엔드포인트 메서드를 그대로 사용합니다.
+            response = await client.create_chat_completion(
+                req_model=req.model,
+                user_query=current_user_content,
+                req_stream=req.stream,
+                user_id=req.user_id
+            )
         
         if req.stream:
             # PolarisAgentClient returns StreamingResponse directly if stream=True
