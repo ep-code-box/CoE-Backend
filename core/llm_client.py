@@ -234,14 +234,29 @@ class PolarisAgentClient:
                                 chunk_id = f"chatcmpl-{uuid.uuid4()}"
                                 delta_content = data.get('data', '')
                                 chunk_data = {'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req_model, 'choices': [{'index': 0, 'delta': {'content': delta_content}, 'finish_reason': None}]}
-                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            
+                            # --- MODIFIED: 에러 발생 시 detects 및 status_code 처리 ---
                             elif data.get("type") == "error":
                                 chunk_id = f"chatcmpl-{uuid.uuid4()}"
                                 error_reason = data.get('reason')
+                                status_code = data.get('status_code')
+                                detects = data.get('detects', [])
+                                
                                 delta_content = f"\n[Error: {error_reason}]"
                                 logger.warning(f"[POLARIS][STREAM] Error in data: {error_reason}")
-                                chunk_data = {'id': chunk_id, 'object': 'chat.completion.chunk', 'created': int(time.time()), 'model': req_model, 'choices': [{'index': 0, 'delta': {'content': delta_content}, 'finish_reason': 'stop'}]}
-                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                                
+                                chunk_data = {
+                                    'id': chunk_id, 
+                                    'object': 'chat.completion.chunk', 
+                                    'created': int(time.time()), 
+                                    'model': req_model, 
+                                    'choices': [{'index': 0, 'delta': {'content': delta_content}, 'finish_reason': 'stop'}],
+                                    'error_code': status_code,
+                                    'detects': detects
+                                }
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                                
                         except json.JSONDecodeError:
                             pass
                     yield "data: [DONE]\n\n"
@@ -258,6 +273,11 @@ class PolarisAgentClient:
 
             lines = resp.text.split("\n")
             full_content = ""
+            
+            # --- MODIFIED: 에러 발생 시 detects 및 status_code 수집용 변수 ---
+            pii_detects = []
+            error_code = None
+
             for line in lines:
                 if not line.strip():
                     continue
@@ -265,18 +285,31 @@ class PolarisAgentClient:
                     data = json.loads(line)
                     if data.get("type") == "token":
                         full_content += data.get("data", "")
+                        
+                    # --- MODIFIED: 에러 데이터 파싱 및 정보 적재 ---
                     elif data.get("type") == "error":
                         full_content += f"\n[Error: {data.get('reason')}]"
+                        if data.get("status_code"):
+                            error_code = data.get("status_code")
+                        if data.get("detects"):
+                            pii_detects.extend(data.get("detects"))
                 except:
                     pass
                     
             await client.aclose()
             
-            return {
+            # --- MODIFIED: 최종 결과 객체에 개인정보/에러 데이터 추가 ---
+            result = {
                 "id": f"chatcmpl-{uuid.uuid4()}",
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": req_model or "quality-agent",
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": full_content}, "finish_reason": "stop"}]
             }
-
+            
+            if pii_detects:
+                result["detects"] = pii_detects
+            if error_code:
+                result["error_code"] = error_code
+                
+            return result
