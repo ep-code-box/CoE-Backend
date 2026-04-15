@@ -323,7 +323,8 @@ class PolarisAgentClient:
         messages: list, 
         tools: list, 
         req_stream: bool, 
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        tool_choice: Optional[Any] = "auto"
     ):
         """새로운 /v1/chat/completions 엔드포인트를 호출하여 Tool Calling을 지원합니다."""
         import httpx
@@ -364,7 +365,7 @@ class PolarisAgentClient:
             "model": req_model,
             "messages": serializable_messages,
             "tools": serializable_tools,
-            "tool_choice": "auto",
+            "tool_choice": tool_choice,
             "stream": req_stream,
             "user_id": resolved_user_id,
             "model_cd": target_model_cd,

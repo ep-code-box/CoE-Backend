@@ -1188,6 +1188,7 @@ async def handle_polaris_agent_request(
                 req_model=req.model,
                 messages=history_dicts,
                 tools=merged_tools,
+                tool_choice=req.tool_choice,
                 req_stream=req.stream,
                 user_id=req.user_id
             )
