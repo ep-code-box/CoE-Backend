@@ -350,10 +350,20 @@ class PolarisAgentClient:
                     last_user_msg = str(last_user_msg) # 간이 변환
                 break
             
+        # Pydantic 객체인 경우 dict로 변환 (JSON 직렬화 에러 방지)
+        serializable_messages = [
+            m.model_dump(exclude_none=True) if hasattr(m, "model_dump") else m 
+            for m in messages
+        ]
+        serializable_tools = [
+            t.model_dump(exclude_none=True) if hasattr(t, "model_dump") else t 
+            for t in tools
+        ]
+
         payload = {
             "model": req_model,
-            "messages": messages,
-            "tools": tools,
+            "messages": serializable_messages,
+            "tools": serializable_tools,
             "tool_choice": "auto",
             "stream": req_stream,
             "user_id": resolved_user_id,
