@@ -189,7 +189,6 @@ class PolarisAgentClient:
         resolved_user_id = user_id if user_id else "agent_developer"
         
         # models.json 설정(ModelRegistry)을 통해 동적으로 model_cd 바인딩
-        from core.llm_client import get_model_info
         model_info = get_model_info(req_model)
         
         target_model_cd = "GPT5_2" # 기본값
@@ -330,13 +329,14 @@ class PolarisAgentClient:
         import httpx
         import json
         import logging
+        import uuid
+        import time
         from fastapi import HTTPException
         from fastapi.responses import StreamingResponse
         
         logger = logging.getLogger(__name__)
         resolved_user_id = user_id if user_id else "agent_developer"
         
-        from core.llm_client import get_model_info
         target_model_cd = "GPT5_2"
         model_info = get_model_info(req_model)
         if model_info and model_info.provider_model_id:
@@ -347,7 +347,6 @@ class PolarisAgentClient:
             if msg.get("role") == "user":
                 last_user_msg = msg.get("content", "")
                 if isinstance(last_user_msg, list): # 멀티모달 처리
-                    import core.llm_client
                     last_user_msg = str(last_user_msg) # 간이 변환
                 break
             
@@ -418,9 +417,6 @@ class PolarisAgentClient:
             full_content = ""
             tool_calls = []
             
-            import uuid
-            import time
-
             for line in lines:
                 if not line.strip():
                     continue
@@ -446,6 +442,9 @@ class PolarisAgentClient:
             await client.aclose()
             
             # 최종 OpenAI 규격으로 조립
+            # content가 공백만 있거나 비어있는데 tool_calls가 있으면 None으로 처리 (OpenAI 표준)
+            final_content = full_content if full_content.strip() else (None if tool_calls else full_content)
+            
             result = {
                 "id": f"chatcmpl-{uuid.uuid4()}",
                 "object": "chat.completion",
@@ -455,11 +454,13 @@ class PolarisAgentClient:
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": full_content if full_content else None
+                        "content": final_content
                     },
-                    "finish_reason": "stop"
+                    "finish_reason": "tool_calls" if tool_calls else "stop"
                 }]
             }
+            
+            # tool_calls가 있으면 추가
             if tool_calls:
                 result["choices"][0]["message"]["tool_calls"] = tool_calls
                 

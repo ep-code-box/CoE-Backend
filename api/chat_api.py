@@ -1206,7 +1206,7 @@ async def handle_polaris_agent_request(
             return response
         else:
             final_message_dict = response["choices"][0]["message"]
-            final_message_content = final_message_dict.get("content", "")
+            final_message_content = final_message_dict.get("content") or ""
 
             await _log_and_save_messages(
                 chat_service,
