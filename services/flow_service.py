@@ -180,7 +180,7 @@ def upsert_flow(
 
 def delete_and_unregister_flow(
     db: Session, 
-    flow_id: int, 
+    flow_id: str, 
     router_service: FlowRouterService
 ) -> schemas.FlowRead | None:
     """

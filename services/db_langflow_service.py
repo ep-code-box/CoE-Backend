@@ -58,10 +58,10 @@ class LangFlowService:
         return db.query(LangFlow).filter(LangFlow.name == name, LangFlow.is_active == True).first()
     
     @staticmethod
-    def get_flow_by_id(db: Session, flow_id: int) -> Optional[LangFlow]:
+    def get_flow_by_id(db: Session, flow_id: str) -> Optional[LangFlow]:
         """ID로 LangFlow를 조회합니다."""
-        return db.query(LangFlow).filter(LangFlow.id == flow_id, LangFlow.is_active == True).first()
-    
+        return db.query(LangFlow).filter(LangFlow.flow_id == flow_id, LangFlow.is_active == True).first()
+      
     @staticmethod
     def get_all_flows(db: Session) -> List[LangFlow]:
         """모든 활성 LangFlow를 조회합니다. (is_active가 NULL인 레거시 데이터도 포함)"""
@@ -116,7 +116,7 @@ class LangFlowService:
             raise Exception(f"Failed to delete flow: {str(e)}")
 
     @staticmethod
-    def delete_flow_by_id(db: Session, flow_id: int) -> Optional[LangFlow]:
+    def delete_flow_by_id(db: Session, flow_id: str) -> Optional[LangFlow]:
         """LangFlow를 ID로 삭제합니다 (소프트 삭제)."""
         try:
             db_flow = LangFlowService.get_flow_by_id(db, flow_id)

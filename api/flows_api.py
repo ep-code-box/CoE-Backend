@@ -50,7 +50,7 @@ def read_all_flows(
 
 @router.delete("/{flow_id}", response_model=schemas.FlowRead)
 def remove_flow(
-    flow_id: int,
+    flow_id: str,
     db: Session = Depends(get_db),
     router_service: FlowRouterService = Depends(get_flow_router_service)
 ):
@@ -58,7 +58,9 @@ def remove_flow(
     Delete a registered LangFlow by its ID and deactivate its dynamic endpoint.
     """
     deleted_flow = flow_service.delete_and_unregister_flow(
-        db=db, flow_id=flow_id, router_service=router_service
+        db=db,
+        flow_id=flow_id,
+        router_service=router_service,
     )
     
     if deleted_flow is None:
