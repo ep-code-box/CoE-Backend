@@ -420,6 +420,10 @@ class PolarisAgentClient:
             for line in lines:
                 if not line.strip():
                     continue
+                
+                # [DEBUG] 응답 각 라인 출력
+                logger.debug(f"[POLARIS-TOOL][INCOMING] Line: {line}")
+                
                 try:
                     data = json.loads(line)
                     # 1. 표준 OpenAI 응답 조각인 경우
@@ -429,14 +433,22 @@ class PolarisAgentClient:
                         if msg.get("content"):
                             full_content += msg["content"]
                         if msg.get("tool_calls"):
+                            logger.info(f"[POLARIS-TOOL] Detected tool_calls in OpenAI format")
                             tool_calls.extend(msg["tool_calls"])
                             
                     # 2. Polaris 전용 응답 조각인 경우
                     elif data.get("type") == "token":
                         full_content += data.get("data", "")
                     elif data.get("type") == "error":
+                        logger.error(f"[POLARIS-TOOL] Error in response: {data}")
                         full_content += f"\n[Error: {data.get('reason')}]"
-                except:
+                    elif data.get("type") == "tool_calls":
+                        logger.info(f"[POLARIS-TOOL] Detected tool_calls in Polaris format")
+                        # 폴라리스 전용 형식인 경우 처리 로직 추가 가능
+                        if data.get("data"):
+                             tool_calls.extend(data.get("data"))
+                except Exception as e:
+                    logger.warning(f"[POLARIS-TOOL] Failed to parse line: {line}. Error: {e}")
                     continue
                     
             await client.aclose()
