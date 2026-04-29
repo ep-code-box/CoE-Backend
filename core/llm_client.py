@@ -178,7 +178,7 @@ class PolarisAgentClient:
         else:
             logger.info(f"[POLARIS] API Key loaded ({self.api_key[:5]}...) for context='{self.context}'")
 
-    async def create_chat_completion(self, req_model: str, user_query: str, req_stream: bool, user_id: Optional[str] = None):
+    async def create_chat_completion(self, req_model: str, user_query: str, req_stream: bool, user_id: Optional[str] = None, messages: Optional[list] = None):
         import httpx
         import json
         import uuid
@@ -204,6 +204,12 @@ class PolarisAgentClient:
             "usecase_mode": "GENERAL",
             "stream": req_stream
         }
+        
+        if messages:
+            payload["messages"] = [
+                m.model_dump(exclude_none=True) if hasattr(m, "model_dump") else m 
+                for m in messages
+            ]
         
         headers = {
             "X-AGENT-API-KEY": self.api_key,
@@ -416,6 +422,7 @@ class PolarisAgentClient:
             lines = resp.text.split("\n")
             full_content = ""
             tool_calls = []
+            polaris_finish_reason = None
             
             for line in lines:
                 if not line.strip():
@@ -435,6 +442,8 @@ class PolarisAgentClient:
                         if msg.get("tool_calls"):
                             logger.info(f"[POLARIS-TOOL] Detected tool_calls in OpenAI format")
                             tool_calls.extend(msg["tool_calls"])
+                        if choice.get("finish_reason"):
+                            polaris_finish_reason = choice.get("finish_reason")
                             
                     # 2. Polaris 전용 응답 조각인 경우
                     elif data.get("type") == "token":
@@ -444,9 +453,12 @@ class PolarisAgentClient:
                         full_content += f"\n[Error: {data.get('reason')}]"
                     elif data.get("type") == "tool_calls":
                         logger.info(f"[POLARIS-TOOL] Detected tool_calls in Polaris format")
-                        # 폴라리스 전용 형식인 경우 처리 로직 추가 가능
                         if data.get("data"):
                              tool_calls.extend(data.get("data"))
+                    elif data.get("type") == "finish_reason":
+                        polaris_finish_reason = data.get("data")
+                        logger.debug(f"[POLARIS-TOOL] Captured finish_reason: {polaris_finish_reason}")
+
                 except Exception as e:
                     logger.warning(f"[POLARIS-TOOL] Failed to parse line: {line}. Error: {e}")
                     continue
@@ -456,6 +468,9 @@ class PolarisAgentClient:
             # 최종 OpenAI 규격으로 조립
             # content가 공백만 있거나 비어있는데 tool_calls가 있으면 None으로 처리 (OpenAI 표준)
             final_content = full_content if full_content.strip() else (None if tool_calls else full_content)
+            
+            # 폴라리스가 준 finish_reason이 있으면 우선 사용, 없으면 tool_calls 여부에 따라 결정
+            effective_finish_reason = polaris_finish_reason or ("tool_calls" if tool_calls else "stop")
             
             result = {
                 "id": f"chatcmpl-{uuid.uuid4()}",
@@ -468,7 +483,7 @@ class PolarisAgentClient:
                         "role": "assistant",
                         "content": final_content
                     },
-                    "finish_reason": "tool_calls" if tool_calls else "stop"
+                    "finish_reason": effective_finish_reason
                 }]
             }
             

@@ -1198,7 +1198,8 @@ async def handle_polaris_agent_request(
                 req_model=req.model,
                 user_query=current_user_content,
                 req_stream=req.stream,
-                user_id=req.user_id
+                user_id=req.user_id,
+                messages=history_dicts
             )
         
         if req.stream:
