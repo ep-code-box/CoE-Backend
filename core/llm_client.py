@@ -395,21 +395,60 @@ class PolarisAgentClient:
                         logger.error(f"[POLARIS-TOOL][ERROR] Stream failed: {error_data.decode('utf-8')}")
                         raise HTTPException(status_code=resp.status_code, detail=f"Agent API Error: {error_data.decode('utf-8')}")
                     
+                    chunk_id = f"chatcmpl-{uuid.uuid4()}"
+                    
                     async for line in resp.aiter_lines():
-                        if not line or not line.startswith("data: "):
+                        if not line.strip():
                             continue
                         
-                        data_str = line[6:]
-                        if data_str.strip() == "[DONE]":
-                            yield "data: [DONE]\n\n"
-                            break
-                        
+                        # 1. 만약 Polaris가 나중에 data: 로 시작하는 SSE 규격으로 보내준다면 패스스루
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str.strip() == "[DONE]":
+                                yield "data: [DONE]\n\n"
+                                break
+                            try:
+                                chunk_data = json.loads(data_str)
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            except json.JSONDecodeError:
+                                pass
+                            continue
+                            
+                        # 2. Polaris 커스텀 JSON 라인 스트리밍 파싱 (data: 접두사가 없는 경우)
                         try:
-                            # 폴라리스 커스텀 타입이 아닌 순수한 OpenAI 형식 파싱 결과를 패스스루
-                            chunk_data = json.loads(data_str)
-                            yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            data = json.loads(line)
+                            
+                            # 기본 OpenAI chunk 구조 준비
+                            chunk_data = {
+                                'id': chunk_id, 
+                                'object': 'chat.completion.chunk', 
+                                'created': int(time.time()), 
+                                'model': req_model, 
+                                'choices': [{'index': 0, 'delta': {}, 'finish_reason': None}]
+                            }
+                            
+                            if "choices" in data:
+                                # 이미 완벽한 OpenAI 형식이라면 그대로 패스스루
+                                yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                            elif data.get("type") == "token":
+                                chunk_data['choices'][0]['delta']['content'] = data.get('data', '')
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            elif data.get("type") == "tool_calls":
+                                chunk_data['choices'][0]['delta']['tool_calls'] = data.get('data', [])
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            elif data.get("type") == "finish_reason":
+                                chunk_data['choices'][0]['finish_reason'] = data.get('data')
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                            elif data.get("type") == "error":
+                                chunk_data['choices'][0]['delta']['content'] = f"\n[Error: {data.get('reason')}]"
+                                chunk_data['choices'][0]['finish_reason'] = "stop"
+                                yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
+                                
                         except json.JSONDecodeError:
+                            logger.warning(f"[POLARIS-TOOL] Failed to parse line in stream: {line}")
                             pass
+                            
+                    yield "data: [DONE]\n\n"
             return StreamingResponse(_stream_generator(), media_type="text/event-stream")
 
         else:
