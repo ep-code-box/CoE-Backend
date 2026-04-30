@@ -418,6 +418,9 @@ class PolarisAgentClient:
                         try:
                             data = json.loads(line)
                             
+                            # 스트리밍 디버깅 로그 추가
+                            logger.debug(f"[POLARIS-TOOL][STREAM] Line: {line}")
+                            
                             # 기본 OpenAI chunk 구조 준비
                             chunk_data = {
                                 'id': chunk_id, 
@@ -434,18 +437,21 @@ class PolarisAgentClient:
                                 chunk_data['choices'][0]['delta']['content'] = data.get('data', '')
                                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                             elif data.get("type") == "tool_calls":
+                                logger.info(f"[POLARIS-TOOL][STREAM] Detected tool_calls in Polaris format")
                                 chunk_data['choices'][0]['delta']['tool_calls'] = data.get('data', [])
                                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                             elif data.get("type") == "finish_reason":
+                                logger.debug(f"[POLARIS-TOOL][STREAM] Captured finish_reason: {data.get('data')}")
                                 chunk_data['choices'][0]['finish_reason'] = data.get('data')
                                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                             elif data.get("type") == "error":
+                                logger.error(f"[POLARIS-TOOL][STREAM] Error in response: {data}")
                                 chunk_data['choices'][0]['delta']['content'] = f"\n[Error: {data.get('reason')}]"
                                 chunk_data['choices'][0]['finish_reason'] = "stop"
                                 yield f"data: {json.dumps(chunk_data, ensure_ascii=False)}\n\n"
                                 
                         except json.JSONDecodeError:
-                            logger.warning(f"[POLARIS-TOOL] Failed to parse line in stream: {line}")
+                            logger.warning(f"[POLARIS-TOOL][STREAM] Failed to parse line in stream: {line}")
                             pass
                             
                     yield "data: [DONE]\n\n"
