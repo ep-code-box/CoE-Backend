@@ -275,6 +275,7 @@ class FlowCreate(BaseModel):
     description: Optional[str] = Field(None, description="A description for the flow.")
     flow_body: LangFlowJSON = Field(..., description="The JSON object defining the LangFlow.")
     flow_id: str = Field(..., description="The unique ID for the flow, typically from LangFlow itself.")
+    id: Optional[int] = Field(None, description="Database ID for the flow. Auto-generated on creation, required for updates.")
     # LangFlow를 사용할 수 있는 프론트 컨텍스트 지정 (예: 'aider', 'continue.dev', 'openWebUi')
     # 호환성: context는 문자열 또는 문자열 배열 모두 허용
     context: Optional[Union[str, List[str]]] = Field(
@@ -315,14 +316,15 @@ class FlowContextGroup(BaseModel):
 FlowCreate.model_rebuild()
 
 class FlowRead(BaseModel):
-    id: int
+    id: Optional[int] = None
     endpoint: str
-    description: Optional[str]
+    description: Optional[str] = None
     flow_body: LangFlowJSON
-    flow_id: str
+    flow_id: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    name: Optional[str] = None  # For compatibility with LangFlow's flow name
 
     model_config = ConfigDict(from_attributes=True)
 

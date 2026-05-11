@@ -178,7 +178,7 @@ def upsert_flow(
     return flow_read_schema
 
 
-def delete_and_unregister_flow(
+def delete_and_unregister_flow_by_flow_id(
     db: Session, 
     flow_id: str, 
     router_service: FlowRouterService
@@ -187,7 +187,32 @@ def delete_and_unregister_flow(
     Deletes (soft) the flow from the DB, deactivates its API route, and removes the tool mapping.
     """
     # 1. Delete from DB using the refactored service
-    db_flow = langflow_db_service.delete_flow_by_id(db=db, flow_id=flow_id)
+    db_flow = langflow_db_service.delete_flow_by_flow_id(db=db, flow_id=flow_id)
+    
+    if not db_flow:
+        return None
+
+    # 2. (Deprecated) No separate tool mapping to remove
+        
+    # 3. Convert to schema for response
+    flow_read_schema = schemas.FlowRead.from_orm(db_flow)
+    
+    # 4. Deactivate the route
+    router_service.remove_flow_route(flow_read_schema.endpoint)
+    
+    return flow_read_schema
+
+
+def delete_and_unregister_flow_by_id(
+    db: Session, 
+    id: int, 
+    router_service: FlowRouterService
+) -> schemas.FlowRead | None:
+    """
+    Deletes (soft) the flow from the DB, deactivates its API route, and removes the tool mapping.
+    """
+    # 1. Delete from DB using the refactored service
+    db_flow = langflow_db_service.delete_flow_by_id(db=db, id=id)
     
     if not db_flow:
         return None
