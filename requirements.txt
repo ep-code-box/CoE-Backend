@@ -191,7 +191,7 @@ langchain_google_vertexai==2.0.7
 langchain_groq==0.2.1
 langchain_ibm==0.3.19
 langchain_milvus==0.1.7
-langchain_mistralai==0.2.3
+# langchain_mistralai==0.2.3
 # langchain_mongodb==0.2.0
 langchain_nvidia_ai_endpoints==0.3.8
 langchain_ollama==0.2.1
@@ -232,7 +232,7 @@ mdurl==0.1.2
 mem0ai==0.1.34
 metal_sdk==2.5.1
 metaphor_python==0.1.23
-mistralai==1.5.2
+# mistralai==1.5.2
 mmh3==5.2.0
 monotonic==1.6
 more_itertools==10.8.0
@@ -308,8 +308,8 @@ pyasn1_modules==0.4.2
 pycparser==2.23
 pycryptodome==3.23.0
 pydantic==2.10.6
-pydantic_ai==0.0.55
-pydantic_ai_slim==0.0.55
+# pydantic_ai==0.0.55
+# pydantic_ai_slim==0.0.55
 pydantic_core==2.27.2
 pydantic_evals==0.0.55
 pydantic_graph==0.0.55
