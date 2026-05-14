@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from core.database import LangFlow
-from datetime import datetime
+from datetime import datetime, timezone
 
 class LangFlowService:
     """LangFlow 데이터베이스 서비스 클래스"""
@@ -22,7 +22,7 @@ class LangFlowService:
                 existing_flow.name = name
                 existing_flow.description = description
                 existing_flow.flow_data = flow_data
-                existing_flow.updated_at = datetime.utcnow()
+                existing_flow.updated_at = datetime.now(timezone.utc)
                 db.commit()
                 db.refresh(existing_flow)
                 return existing_flow
@@ -58,10 +58,20 @@ class LangFlowService:
         return db.query(LangFlow).filter(LangFlow.name == name, LangFlow.is_active == True).first()
     
     @staticmethod
-    def get_flow_by_id(db: Session, flow_id: str) -> Optional[LangFlow]:
+    def get_flow_by_id(db: Session, id: int) -> Optional[LangFlow]:
         """ID로 LangFlow를 조회합니다."""
+        return db.query(LangFlow).filter(LangFlow.id == id, LangFlow.is_active == True).first()
+    
+    @staticmethod
+    def get_flow_by_flow_id(db: Session, flow_id: str) -> Optional[LangFlow]:
+        """Flow ID로 LangFlow를 조회합니다."""
         return db.query(LangFlow).filter(LangFlow.flow_id == flow_id, LangFlow.is_active == True).first()
-      
+    
+    @staticmethod
+    def get_flows_by_endpoint(db: Session, name: str) -> Optional[LangFlow]:
+        """Endpoint로 LangFlow를 조회합니다."""
+        return db.query(LangFlow).filter(LangFlow.name == name, LangFlow.is_active == True).first()
+
     @staticmethod
     def get_all_flows(db: Session) -> List[LangFlow]:
         """모든 활성 LangFlow를 조회합니다. (is_active가 NULL인 레거시 데이터도 포함)"""
@@ -88,7 +98,7 @@ class LangFlowService:
             if description is not None:
                 db_flow.description = description
             
-            db_flow.updated_at = datetime.utcnow()
+            db_flow.updated_at = datetime.now(timezone.utc)
             
             db.commit()
             db.refresh(db_flow)
@@ -99,7 +109,7 @@ class LangFlowService:
             raise Exception(f"Failed to update flow: {str(e)}")
     
     @staticmethod
-    def delete_flow(db: Session, name: str) -> bool:
+    def delete_flow_by_name(db: Session, name: str) -> bool:
         """LangFlow를 이름으로 삭제합니다 (소프트 삭제)."""
         try:
             db_flow = LangFlowService.get_flow_by_name(db, name)
@@ -107,30 +117,47 @@ class LangFlowService:
                 return False
             
             db_flow.is_active = False
-            db_flow.updated_at = datetime.utcnow()
+            db_flow.updated_at = datetime.now(timezone.utc)
             
             db.commit()
             return True
         except Exception as e:
             db.rollback()
-            raise Exception(f"Failed to delete flow: {str(e)}")
+            raise Exception(f"Failed to delete flow by name '{name}': {str(e)}")
 
     @staticmethod
-    def delete_flow_by_id(db: Session, flow_id: str) -> Optional[LangFlow]:
-        """LangFlow를 ID로 삭제합니다 (소프트 삭제)."""
+    def delete_flow_by_flow_id(db: Session, flow_id: str) -> Optional[LangFlow]:
+        """LangFlow를 Flow ID로 삭제합니다 (소프트 삭제)."""
         try:
-            db_flow = LangFlowService.get_flow_by_id(db, flow_id)
+            db_flow = LangFlowService.get_flow_by_flow_id(db, flow_id)
             if not db_flow:
                 return None
             
             db_flow.is_active = False
-            db_flow.updated_at = datetime.utcnow()
+            db_flow.updated_at = datetime.now(timezone.utc)
             
             db.commit()
             return db_flow
         except Exception as e:
             db.rollback()
-            raise Exception(f"Failed to delete flow by ID: {str(e)}")
+            raise Exception(f"Failed to delete flow by Flow ID '{flow_id}': {str(e)}")
+        
+    @staticmethod
+    def delete_flow_by_id(db: Session, id: int) -> Optional[LangFlow]:
+        """LangFlow를 ID로 삭제합니다 (소프트 삭제)."""
+        try:
+            db_flow = LangFlowService.get_flow_by_id(db, id)
+            if not db_flow:
+                return None
+            
+            db_flow.is_active = False
+            db_flow.updated_at = datetime.now(timezone.utc)
+            
+            db.commit()
+            return db_flow
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Failed to delete flow by ID '{id}': {str(e)}")
     
     @staticmethod
     def get_flow_data_as_dict(flow: LangFlow) -> Dict[str, Any]:
