@@ -34,7 +34,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - axstudio-dev
+      - axstudio_net
 
   mariadb:
     image: mariadb:11.4
@@ -45,6 +45,7 @@ services:
       MARIADB_USER: ${DB_USER:-coe_user}
       MARIADB_PASSWORD: ${DB_PASSWORD:-coe_password}
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-coe_root_password}
+      LANGFLOW_DATABASE_URL: postgresql+psycopg://admin:123456@prod_postgres:5432/langflow
     ports:
       - "${DB_PORT:-3306}:3306"
     volumes:
@@ -56,7 +57,7 @@ services:
       retries: 20
 
     networks:
-      - axstudio-dev
+      - axstudio_net
   # prod_chroma:
   #   image: chromadb/chroma:latest
   #   container_name: prod_chroma
@@ -84,7 +85,7 @@ services:
       timeout: 3s
       retries: 10
     networks:
-      - axstudio-dev
+      - axstudio_net
 
 volumes:
   mariadb_data:
@@ -92,5 +93,5 @@ volumes:
   redis_data:
 
 networks:
-  axstudio-dev:
+  axstudio_net:
     external: true

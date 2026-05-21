@@ -26,12 +26,18 @@ RUN pip install alembic
 # requirements.in 파일을 복사합니다.
 COPY requirements.txt .
 
-COPY vendor/pidpy-1.3.19-py3-none-linux_x86_64.whl ./vendor/pidpy/
-# COPY vendor/wheels/mistralai-1.5.2-py3-none-any.whl ./vendor/mistralai/
+COPY vendor/pidpy/pidpy-1.3.19-py3-none-linux_x86_64.whl ./vendor/pidpy/
+COPY vendor/pidpy/langflow_base-0.6.4-py3-none-any.whl ./vendor/pidpy/
+COPY vendor/pidpy/langflow-1.6.4-py3-none-any.whl ./vendor/pidpy/
+COPY vendor/pidpy/lfx-0.1.13-py3-none-any.whl ./vendor/pidpy/
+# COPY vendor/pidpy/mistralai-1.5.2-py3-none-any.whl ./vendor/pidpy/
 
-# pidpy 로컬 휠을 먼저 설치합니다.
+# 로컬 휠을 먼저 설치합니다.
 RUN pip install ./vendor/pidpy/pidpy-1.3.19-py3-none-linux_x86_64.whl
-# RUN pip install ./vendor/mistralai/mistralai-1.5.2-py3-none-any.whl
+RUN pip install --no-deps ./vendor/pidpy/langflow_base-0.6.4-py3-none-any.whl
+RUN pip install --no-deps ./vendor/pidpy/langflow-1.6.4-py3-none-any.whl
+RUN pip install --no-deps ./vendor/pidpy/lfx-0.1.13-py3-none-any.whl
+# RUN pip install ./vendor/pidpy/mistralai-1.5.2-py3-none-any.whl
 
 # uv를 사용하여 requirements.in 파일의 패키지를 바로 설치합니다.
 # chroma-hnswlib 빌드 오류 방지를 위해 HNSWLIB_NO_NATIVE=1 환경 변수를 설정합니다.

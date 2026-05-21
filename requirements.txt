@@ -202,8 +202,8 @@ langchain_tests==0.3.20
 langchain_text_splitters==0.3.11
 langchain_unstructured==0.1.5
 langchainhub==0.1.21
-langflow==1.6.4
-lfx==0.1.13
+# langflow==1.6.4  # installed from local wheel
+# lfx==0.1.13  # installed from local wheel
 langfuse==2.53.9
 langgraph==1.0.0
 langgraph_checkpoint==2.1.2
@@ -438,4 +438,3 @@ youtube_transcript_api==0.6.3
 zep_python==2.0.2
 zipp==3.23.0
 zstandard==0.23.0
-lfx
